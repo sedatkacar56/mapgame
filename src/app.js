@@ -1,0 +1,698 @@
+const COLORS = [
+  '#f4b63f','#ef6a67','#4fb3a5','#768ce3','#a87ad2','#79ad54','#e78c45','#d85e9f',
+  '#50a7d0','#b7a64a','#9b7b5a','#5fc27d','#d66f3f','#6e6ac7','#c45b68','#4aa0a0',
+  '#d19a66','#8fbc8f','#bf70c9','#7e9bbd'
+]
+const REALM_IDENTITIES = [
+  {name:'Russian Empire',point:[48,58]}, {name:'Nordic Union',point:[16,63]},
+  {name:'Atlantic Kingdom',point:[-3,50]}, {name:'Frankish Empire',point:[3,45]},
+  {name:'Central European Empire',point:[16,50]}, {name:'Balkan Federation',point:[22,44]},
+  {name:'Ottoman Empire',point:[31,39]}, {name:'Caucasian Kingdom',point:[44,42]},
+  {name:'Persian Empire',point:[52,33]}, {name:'Arabian Caliphate',point:[44,24]},
+  {name:'North African Kingdom',point:[10,29]}, {name:'Baltic League',point:[25,56]},
+  {name:'Alpine Confederacy',point:[10,47]}, {name:'Mediterranean Republic',point:[16,38]},
+  {name:'Black Sea Dominion',point:[34,45]}, {name:'Levantine Kingdom',point:[36,33]},
+  {name:'Maghreb Sultanate',point:[-3,31]}, {name:'Iberian Crown',point:[-5,40]},
+  {name:'Danubian League',point:[20,48]}, {name:'Caspian Khanate',point:[54,44]},
+  {name:'Nile Kingdom',point:[30,27]}, {name:'Mesopotamian Empire',point:[44,34]}
+]
+const REGION = new Set([
+  'Albania','Algeria','Armenia','Austria','Azerbaijan','Belarus','Belgium','Bosnia and Herzegovina',
+  'Bulgaria','Croatia','Cyprus','Czechia','Denmark','Egypt','Estonia','Finland','France','Georgia',
+  'Germany','Greece','Hungary','Iran','Iraq','Ireland','Israel','Italy','Jordan',
+  'Kosovo','Kuwait','Latvia','Lebanon','Libya','Lithuania','Luxembourg','Moldova','Montenegro','Morocco',
+  'Netherlands','North Macedonia','Norway','Oman','Poland','Portugal','Qatar','Romania',
+  'Saudi Arabia','Serbia','Slovakia','Slovenia','Spain','Sweden','Switzerland','Syria','Tunisia','Turkey',
+  'Ukraine','United Arab Emirates','United Kingdom','Yemen'
+])
+const SEA_LINKS = [
+  ['United Kingdom','France'],['Ireland','United Kingdom'],['Denmark','Sweden'],['Italy','Tunisia'],
+  ['Italy','Albania'],['Greece','Turkey'],['Cyprus','Turkey'],['Cyprus','Syria'],['Spain','Morocco']
+]
+const RUSSIA_BORDER_LINKS = {
+  Norway: ['Murmansk'],
+  Finland: ['Murmansk','Karelia','Leningrad'],
+  Estonia: ['Leningrad','Pskov'],
+  Latvia: ['Pskov'],
+  Lithuania: ['Kaliningrad'],
+  Poland: ['Kaliningrad'],
+  Belarus: ['Pskov','Smolensk','Bryansk'],
+  Ukraine: ['Bryansk','Kursk','Belgorod','Voronezh','Rostov'],
+  Georgia: ['Krasnodar','Karachay-Cherkess','Kabardin-Balkar','North Ossetia','Chechnya','Dagestan'],
+  Azerbaijan: ['Dagestan']
+}
+const $ = selector => document.querySelector(selector)
+const roll = () => Math.floor(Math.random() * 6) + 1
+const turnMessage = player => player.name==='You'?'Your campaign turn.':`${player.name}'s campaign turn.`
+const escapeHtml = value => String(value).replace(/[&<>'"]/g,character=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[character]))
+function ringArea(ring) {
+  return ring.slice(0,-1).reduce((sum, point, index) => {
+    const next=ring[index+1]
+    return sum + point[0]*next[1] - next[0]*point[1]
+  },0)/2
+}
+function orientGeometry(geometry) {
+  const polygons=geometry.type==='Polygon'?[geometry.coordinates]:geometry.coordinates
+  polygons.forEach(polygon => polygon.forEach((ring,index) => {
+    const area=ringArea(ring)
+    if((index===0&&area>0)||(index>0&&area<0))ring.reverse()
+  }))
+}
+const state = {
+  territories: [], players: [], humanCount: 1, playerCount: 4, phase: 'setup', turn: 0,
+  claimWinner: null, selected: null, dice: [], battle: null, message: 'Prepare your campaign.', aiTimer: null, fastAI: false, musicOn: false,
+  turnCount: 0, roundCount: 0, alliances: [], ceasefires: [], diplomacyTarget: null, diplomacyOffers: [], diplomacySent: {}, diplomacyAggression: {}, attackMode: 'normal', attacksThisTurn: {},
+  showLabels: true, showPlayerLabels: true,
+  playerNames: Array(20).fill(''), playerLabelSize: 9
+}
+let mapZoom
+let currentZoom={k:1,x:0,y:0}
+let mapProjection
+let musicContext, musicGain, musicTimer, musicStep=0, musicChange=0
+const musicVoices=new Set()
+
+document.querySelector('#root').innerHTML = `
+  <main>
+    <header>
+      <div class="brand"><span class="brand-mark">BD</span><div><b>Borderline</b><em>Dominion</em></div></div>
+      <div class="turn-banner"><span id="phase-label">THE OLD WORLD</span><strong id="message">Awaiting commanders</strong></div>
+      <div class="header-actions"><button class="ghost" id="save-game">Save</button><button class="ghost" id="load-game">Load</button><button class="ghost" id="new-game">New game</button></div>
+    </header>
+    <section class="game-shell">
+      <div class="map-wrap">
+        <svg class="map" viewBox="0 0 1200 750" role="img" aria-label="Interactive political map">
+          <defs>
+            <filter id="shadow"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity=".3" /></filter>
+            <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="8" height="8" fill="#d7d1bd"/><line x1="0" y1="0" x2="0" y2="8" stroke="#c2bba6" stroke-width="2" /></pattern>
+          </defs>
+          <rect width="1200" height="750" class="sea"/>
+          <g id="map-viewport"><g id="countries"></g><g id="labels"></g><g id="player-labels"></g></g>
+        </svg>
+        <div class="map-controls">
+          <button id="zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
+          <button id="zoom-out" title="Zoom out" aria-label="Zoom out">−</button>
+          <button id="zoom-reset" title="Reset map" aria-label="Reset map">⌂</button>
+          <button id="toggle-labels" class="names-button" aria-pressed="false">Place names</button>
+          <button id="toggle-player-labels" class="names-button" aria-pressed="false">Player names</button>
+          <button id="toggle-fast-ai" class="names-button" aria-pressed="false" title="AI turns play immediately; human turns stay manual">Fast AI</button>
+          <button id="toggle-hard-mode" class="names-button" aria-pressed="false" title="Cycle Normal, Moderate, and Hard attack modes">Mode: Normal · 1 attack</button>
+          <button id="toggle-music" class="names-button" aria-pressed="false" title="Toggle the campaign soundtrack">♫ Music: Off</button>
+          <label class="label-size-control">Name size <input id="player-label-size" type="range" min="4" max="14" step="1" value="9"><output id="player-label-size-value">9</output></label>
+        </div>
+        <div class="compass"><i>N</i><span>✦</span></div><div class="map-caption">EUROPE · NORTH AFRICA · WESTERN ASIA</div>
+      </div>
+      <aside>
+        <div class="panel-title"><span>Players</span><small id="territory-total">0 territories</small></div>
+        <div class="players" id="players"><p class="empty">Your rival commanders will appear here.</p></div>
+        <div id="actions"></div>
+        <div class="rules"><span>FIELD RULES</span><p id="rules-text">Each territory can attack once per turn. Only shared borders and marked sea routes are valid. Ties favor the defender. Alliances last 3 turns; ceasefires last 1.</p></div>
+      </aside>
+    </section>
+    <div id="modal"></div><div id="offer-modal"></div>
+  </main>`
+
+async function loadMap() {
+  try {
+    const [worldResponse, russiaResponse] = await Promise.all([
+      fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-50m.json'),
+      fetch('./data/russia-regions.geojson')
+    ])
+    if (!worldResponse.ok || !russiaResponse.ok) throw new Error()
+    const topology = await worldResponse.json()
+    const russia = await russiaResponse.json()
+    const object = topology.objects.countries
+    const collection = topojson.feature(topology, object)
+    const allNeighbors = topojson.neighbors(object.geometries)
+    const selected = object.geometries.map((geometry, index) => ({ index, name: geometry.properties?.name || '' })).filter(item => REGION.has(item.name))
+    const idByIndex = new Map(selected.map(({ index }) => [index, String(object.geometries[index].id)]))
+    const countries = selected.map(({ index, name }) => ({
+      id: String(object.geometries[index].id), name, feature: collection.features[index],
+      neighbors: allNeighbors[index].map(i => idByIndex.get(i)).filter(Boolean), owner: null, rebel: false, attacked: false, attacks: 0
+    }))
+    const russianRegions = russia.features.map(feature => {
+      orientGeometry(feature.geometry)
+      return {
+        id: `ru-${feature.properties.id}`, name: feature.properties.name, feature,
+        neighbors: feature.properties.neighbors.map(id => `ru-${id}`), owner: null, rebel: false, attacked: false, attacks: 0
+      }
+    })
+    state.territories = [...countries, ...russianRegions]
+    state.territories.forEach(t=>t.landNeighbors=[...t.neighbors])
+    const byName = new Map(state.territories.map(t => [t.name, t]))
+    SEA_LINKS.forEach(([a,b]) => { const x=byName.get(a), y=byName.get(b); if(x&&y){ if(!x.neighbors.includes(y.id))x.neighbors.push(y.id); if(!y.neighbors.includes(x.id))y.neighbors.push(x.id) } })
+    Object.entries(RUSSIA_BORDER_LINKS).forEach(([countryName, regionNames]) => regionNames.forEach(regionName => {
+      const country=byName.get(countryName), region=byName.get(regionName)
+      if(country&&region){
+        if(!country.neighbors.includes(region.id))country.neighbors.push(region.id)
+        if(!region.neighbors.includes(country.id))region.neighbors.push(country.id)
+        if(!country.landNeighbors.includes(region.id))country.landNeighbors.push(region.id)
+        if(!region.landNeighbors.includes(country.id))region.landNeighbors.push(country.id)
+      }
+    }))
+    drawMap(); render()
+  } catch {
+    document.querySelector('#root').innerHTML = '<div class="loading error">Could not load the world map<small>Check your internet connection and reload.</small></div>'
+  }
+}
+
+function drawMap() {
+  currentZoom=d3.zoomIdentity
+  mapProjection = d3.geoMercator().center([34,45]).scale(430).translate([600,440])
+  const path = d3.geoPath(mapProjection)
+  const group = $('#countries'), labels=$('#labels'); group.innerHTML = ''; labels.innerHTML=''
+  state.territories.forEach(t => {
+    const el = document.createElementNS('http://www.w3.org/2000/svg','path')
+    el.setAttribute('d', path(t.feature)); el.setAttribute('class','country'); el.dataset.id=t.id
+    el.addEventListener('click', () => territoryClick(t.id))
+    const title=document.createElementNS('http://www.w3.org/2000/svg','title'); el.appendChild(title)
+    group.appendChild(el)
+    const center=path.centroid(t.feature), label=document.createElementNS('http://www.w3.org/2000/svg','text')
+    const bounds=path.bounds(t.feature), width=bounds[1][0]-bounds[0][0], height=bounds[1][1]-bounds[0][1]
+    const vertical=height>width*1.28
+    t.mapCenter=center;t.mapArea=path.area(t.feature);t.mapBounds=bounds;t.geoCenter=d3.geoCentroid(t.feature)
+    label.setAttribute('x',center[0]);label.setAttribute('y',center[1]);label.setAttribute('class','place-label')
+    label.setAttribute('transform',vertical?`rotate(-90 ${center[0]} ${center[1]})`:'')
+    label.dataset.area=String(path.area(t.feature));label.dataset.width=String(width);label.dataset.height=String(height);label.dataset.vertical=String(vertical)
+    label.textContent=t.name;labels.appendChild(label)
+  })
+  mapZoom=d3.zoom().scaleExtent([1,6]).translateExtent([[0,0],[1200,750]])
+    .on('start',()=>$('.map').classList.add('zooming'))
+    .on('zoom',event=>{
+      currentZoom=event.transform
+      d3.select('#map-viewport').attr('transform',currentZoom)
+    })
+    .on('end',()=>{$('.map').classList.remove('zooming');updateLabels();updatePlayerLabels()})
+  d3.select('.map').call(mapZoom).on('dblclick.zoom',null)
+  updateLabels();updatePlayerLabels()
+}
+
+function updateLabels() {
+  const button=$('#toggle-labels')
+  if(button){button.classList.toggle('active',state.showLabels);button.setAttribute('aria-pressed',String(state.showLabels))}
+  const labels=[...document.querySelectorAll('.place-label')]
+  const accepted=[]
+  labels.sort((a,b)=>Number(b.dataset.area)-Number(a.dataset.area)).forEach(label=>{
+    const area=Number(label.dataset.area)||999
+    const vertical=label.dataset.vertical==='true'
+    const available=vertical?Number(label.dataset.height):Number(label.dataset.width)
+    const baseFont=6.5/currentZoom.k
+    const fitFont=available*.82/Math.max(1,(label.textContent?.length||1)*.54)
+    const fontSize=Math.min(baseFont,fitFont)
+    const screenFont=fontSize*currentZoom.k
+    const readable=area*currentZoom.k*currentZoom.k>22&&screenFont>=4.1
+    const [screenX,screenY]=currentZoom.apply([Number(label.getAttribute('x')),Number(label.getAttribute('y'))])
+    const textWidth=(label.textContent?.length||1)*screenFont*.54+4
+    const textHeight=screenFont*1.35+3
+    const width=vertical?textHeight:textWidth
+    const height=vertical?textWidth:textHeight
+    const box={left:screenX-width/2,right:screenX+width/2,top:screenY-height/2,bottom:screenY+height/2}
+    const overlaps=accepted.some(other=>!(box.right<other.left||box.left>other.right||box.bottom<other.top||box.top>other.bottom))
+    const visible=state.showLabels&&readable&&!overlaps
+    label.style.display=visible?'block':'none'
+    if(visible)accepted.push(box)
+    label.style.fontSize=`${fontSize}px`
+    label.style.strokeWidth=`${Math.max(.35,1/currentZoom.k)}px`
+  })
+}
+
+function updatePlayerLabels() {
+  const button=$('#toggle-player-labels'), group=$('#player-labels')
+  if(button){button.classList.toggle('active',state.showPlayerLabels);button.setAttribute('aria-pressed',String(state.showPlayerLabels))}
+  if($('#player-label-size-value'))$('#player-label-size-value').textContent=state.playerLabelSize
+  if(!group)return
+  const ownershipKey=state.players.map(player=>`${player.id}:${state.territories.filter(t=>t.owner===player.id).map(t=>t.id).join(',')}`).join('|')
+  const viewKey=`${currentZoom.k.toFixed(3)},${currentZoom.x.toFixed(1)},${currentZoom.y.toFixed(1)}`
+  const labelKey=`${state.showPlayerLabels}|${state.playerLabelSize}|${viewKey}|${ownershipKey}`
+  if(group.dataset.labelKey===labelKey)return
+  group.dataset.labelKey=labelKey
+  group.innerHTML=''
+  if(!state.showPlayerLabels||!state.players.length)return
+  const entries=state.players.map(player=>{
+    const owned=largestLandComponent(player.id)
+    if(!owned.length)return null
+    const bounds=owned.reduce((box,t)=>[[Math.min(box[0][0],t.mapBounds[0][0]),Math.min(box[0][1],t.mapBounds[0][1])],[Math.max(box[1][0],t.mapBounds[1][0]),Math.max(box[1][1],t.mapBounds[1][1])]],[[Infinity,Infinity],[-Infinity,-Infinity]])
+    const middle=[(bounds[0][0]+bounds[1][0])/2,(bounds[0][1]+bounds[1][1])/2]
+    const realmWidth=bounds[1][0]-bounds[0][0], realmHeight=bounds[1][1]-bounds[0][1]
+    const onLand=point=>{const geo=mapProjection.invert(point);return geo&&owned.some(t=>d3.geoContains(t.feature,geo))}
+    const candidates=[middle,...owned.flatMap(t=>[t.mapCenter,[(t.mapBounds[0][0]+t.mapBounds[1][0])/2,(t.mapBounds[0][1]+t.mapBounds[1][1])/2]])]
+    for(let y=1;y<8;y++)for(let x=1;x<8;x++)candidates.push([bounds[0][0]+realmWidth*x/8,bounds[0][1]+realmHeight*y/8])
+    const unique=[...new Map(candidates.filter(onLand).map(point=>[`${point[0].toFixed(1)}:${point[1].toFixed(1)}`,point])).values()]
+      .sort((a,b)=>Math.hypot(a[0]-middle[0],a[1]-middle[1])-Math.hypot(b[0]-middle[0],b[1]-middle[1]))
+    return {player,owned,middle,candidates:unique,realmWidth,realmHeight,vertical:realmHeight>realmWidth*1.15,area:owned.reduce((sum,t)=>sum+t.mapArea,0)}
+  }).filter(Boolean).sort((a,b)=>b.area-a.area)
+  const accepted=[]
+  entries.forEach(({player,owned,candidates,realmWidth,realmHeight,vertical})=>{
+    const words=player.name.trim().split(/\s+/)
+    let lines=[player.name]
+    if(player.name.length>14&&words.length>1){
+      let best=1
+      for(let i=2;i<words.length;i++)if(Math.abs(words.slice(0,i).join(' ').length-words.slice(i).join(' ').length)<Math.abs(words.slice(0,best).join(' ').length-words.slice(best).join(' ').length))best=i
+      lines=[words.slice(0,best).join(' '),words.slice(best).join(' ')]
+    }
+    const longest=Math.max(...lines.map(line=>line.length))
+    const major=(vertical?realmHeight:realmWidth)*currentZoom.k
+    const minor=(vertical?realmWidth:realmHeight)*currentZoom.k
+    const initialSize=Math.max(4,Math.min(state.playerLabelSize,major*.74/Math.max(1,longest*.6),minor*.52/lines.length))
+    const makeBox=(center,size)=>{
+      const [screenX,screenY]=currentZoom.apply(center)
+      const bannerWidth=Math.max(20,longest*size*.6+10), bannerHeight=size*lines.length+7
+      const width=vertical?bannerHeight:bannerWidth, height=vertical?bannerWidth:bannerHeight
+      return {left:screenX-width/2,right:screenX+width/2,top:screenY-height/2,bottom:screenY+height/2,bannerWidth,bannerHeight,center,size}
+    }
+    const hasOverlap=box=>accepted.some(other=>!(box.right+2<other.left||box.left-2>other.right||box.bottom+2<other.top||box.top-2>other.bottom))
+    const fitsOnLand=box=>{
+      const inset=2
+      const xs=[box.left+inset,(box.left+box.right)/2,box.right-inset], ys=[box.top+inset,(box.top+box.bottom)/2,box.bottom-inset]
+      const points=xs.flatMap(x=>ys.map(y=>[x,y]))
+      return points.every(point=>{
+        const mapPoint=currentZoom.invert(point), geoPoint=mapProjection.invert(mapPoint)
+        return geoPoint&&owned.some(t=>d3.geoContains(t.feature,geoPoint))
+      })
+    }
+    let box
+    for(let size=initialSize;size>=3&&!box;size-=.5)box=candidates.map(center=>makeBox(center,size)).find(candidate=>!hasOverlap(candidate)&&fitsOnLand(candidate))
+    if(!box)return
+    const {center,size:fontSize}=box
+    accepted.push(box)
+    const label=document.createElementNS('http://www.w3.org/2000/svg','g')
+    label.setAttribute('class','realm-label')
+    label.setAttribute('transform',`translate(${center[0]} ${center[1]}) rotate(${vertical?-90:0}) scale(${1/currentZoom.k})`)
+    const rect=document.createElementNS('http://www.w3.org/2000/svg','rect')
+    rect.setAttribute('x',String(-box.bannerWidth/2));rect.setAttribute('y',String(-box.bannerHeight/2));rect.setAttribute('width',String(box.bannerWidth));rect.setAttribute('height',String(box.bannerHeight));rect.setAttribute('rx','3');rect.setAttribute('fill',player.color)
+    const text=document.createElementNS('http://www.w3.org/2000/svg','text')
+    text.setAttribute('text-anchor','middle');text.setAttribute('dominant-baseline','central');text.style.fontSize=`${fontSize}px`
+    lines.forEach((line,index)=>{const part=document.createElementNS('http://www.w3.org/2000/svg','tspan');part.setAttribute('x','0');part.setAttribute('y',String((index-(lines.length-1)/2)*fontSize*1.02));part.textContent=line;text.appendChild(part)})
+    label.append(rect,text);group.appendChild(label)
+  })
+}
+
+function largestLandComponent(playerId) {
+  const owned=state.territories.filter(t=>t.owner===playerId&&t.mapCenter)
+  const byId=new Map(owned.map(t=>[t.id,t])), unseen=new Set(byId.keys()), components=[]
+  while(unseen.size) {
+    const first=unseen.values().next().value, queue=[first], component=[]
+    unseen.delete(first)
+    while(queue.length) {
+      const territory=byId.get(queue.shift())
+      component.push(territory)
+      territory.landNeighbors.filter(id=>unseen.has(id)).forEach(id=>{unseen.delete(id);queue.push(id)})
+    }
+    components.push(component)
+  }
+  return components.sort((a,b)=>b.reduce((sum,t)=>sum+t.mapArea,0)-a.reduce((sum,t)=>sum+t.mapArea,0))[0]||[]
+}
+
+function changeZoom(multiplier) {
+  if(mapZoom)d3.select('.map').call(mapZoom.scaleBy,multiplier)
+}
+
+function playCampaignBar() {
+  if(!state.musicOn||!musicContext||!musicGain)return
+  const now=musicContext.currentTime+.04
+  const roots=[73.42,65.41,58.27,65.41], root=roots[musicStep++%roots.length]
+  const tone=(frequency,start,duration,volume,type='triangle')=>{
+    const oscillator=musicContext.createOscillator(), gain=musicContext.createGain(), filter=musicContext.createBiquadFilter()
+    const voice={oscillator,gain,filter};musicVoices.add(voice)
+    oscillator.onended=()=>{musicVoices.delete(voice);oscillator.disconnect();filter.disconnect();gain.disconnect()}
+    oscillator.type=type;oscillator.frequency.value=frequency;filter.type='lowpass';filter.frequency.value=type==='sine'?420:760
+    gain.gain.setValueAtTime(.0001,start);gain.gain.exponentialRampToValueAtTime(volume,start+.16);gain.gain.exponentialRampToValueAtTime(.0001,start+duration)
+    oscillator.connect(filter);filter.connect(gain);gain.connect(musicGain);oscillator.start(start);oscillator.stop(start+duration+.05)
+  }
+  tone(root,now,3.15,.06,'sine');tone(root*1.5,now,3.05,.035);tone(root*2,now+.02,2.9,.025)
+  ;[2,2.25,2.4,3,2.67,2.25].forEach((ratio,index)=>tone(root*ratio,now+.18+index*.48,.42,.042,index%2?'sine':'triangle'))
+}
+
+async function stopCampaignMusic() {
+  clearInterval(musicTimer);musicTimer=null
+  musicVoices.forEach(({oscillator})=>{try{oscillator.stop()}catch{}})
+  musicVoices.clear()
+  if(musicGain&&musicContext){musicGain.gain.cancelScheduledValues(musicContext.currentTime);musicGain.gain.setValueAtTime(0,musicContext.currentTime)}
+  if(musicContext&&musicContext.state!=='closed')await musicContext.close()
+  musicContext=null;musicGain=null
+}
+
+function updateMusicButtons() {
+  const label=`♫ Music: ${state.musicOn?'On':'Off'}`
+  const button=$('#toggle-music')
+  if(button){button.textContent=label;button.classList.toggle('active',state.musicOn);button.setAttribute('aria-pressed',String(state.musicOn))}
+  const setupButton=$('#setup-music')
+  if(setupButton){setupButton.textContent=label;setupButton.classList.toggle('active',state.musicOn);setupButton.setAttribute('aria-pressed',String(state.musicOn))}
+}
+
+function updateHardModeButtons() {
+  const labels={normal:'Normal · 1 per territory',moderate:'Moderate · 3 total',hard:'Hard · all territories'}
+  const label=`Mode: ${labels[state.attackMode]||labels.normal}`
+  const button=$('#toggle-hard-mode')
+  if(button){button.textContent=label;button.classList.toggle('active',state.attackMode!=='normal');button.setAttribute('aria-pressed',String(state.attackMode!=='normal'))}
+  const setupButton=$('#setup-hard-mode')
+  if(setupButton){setupButton.textContent=label;setupButton.classList.toggle('active',state.attackMode!=='normal');setupButton.setAttribute('aria-pressed',String(state.attackMode!=='normal'))}
+  const rules=$('#rules-text')
+  if(rules)rules.textContent=state.attackMode==='hard'
+    ?'Hard mode: every territory may attack one neighboring enemy, and the realm continues until no legal attacks remain. Moderate mode allows 3 total attacks per realm. Normal mode allows 1 attack per territory. Ties favor the defender.'
+    :state.attackMode==='moderate'
+      ?'Moderate mode: each realm can make up to 3 total attacks per turn. Each territory fades after attacking once. Only neighboring enemies are valid.'
+      :'Each territory can attack once per turn. Only shared borders and marked sea routes are valid. Ties favor the defender. Alliances last 3 turns; ceasefires last 1.'
+}
+
+function attackLimit(){return state.attackMode==='moderate'?3:Infinity}
+function canAttack(territory){return territory.attacks<1&&(state.attackMode!=='moderate'||(state.attacksThisTurn[territory.owner]||0)<attackLimit())}
+
+async function toggleMusic() {
+  const AudioEngine=window.AudioContext||window.webkitAudioContext
+  if(!AudioEngine){state.message='Music is not supported by this browser.';render();return}
+  state.musicOn=!state.musicOn
+  const change=++musicChange
+  updateMusicButtons()
+  if(state.musicOn){
+    musicContext ||= new AudioEngine()
+    try{if(musicContext.state==='suspended')await musicContext.resume()}catch{}
+    if(change!==musicChange||!state.musicOn)return
+    if(!musicGain){musicGain=musicContext.createGain();musicGain.connect(musicContext.destination)}
+    musicGain.gain.cancelScheduledValues(musicContext.currentTime);musicGain.gain.setValueAtTime(.0001,musicContext.currentTime);musicGain.gain.exponentialRampToValueAtTime(.9,musicContext.currentTime+.45)
+    clearInterval(musicTimer);musicStep=0;playCampaignBar();musicTimer=setInterval(playCampaignBar,3200)
+    if(state.phase!=='setup')state.message='Campaign music started.'
+  } else {
+    await stopCampaignMusic()
+  }
+  if(change!==musicChange)return
+  updateMusicButtons()
+  if(state.phase!=='setup')$('#message').textContent=state.message
+}
+
+function render() {
+  $('#territory-total').textContent = `${state.territories.length} territories`
+  $('#phase-label').textContent = state.phase==='claim'?'CLAIMING ERA':state.phase==='war'?`TURN ${state.turn+1}`:'THE OLD WORLD'
+  $('#message').textContent = state.phase==='setup'?'Awaiting commanders':state.phase==='gameover'?'Campaign complete':state.message
+  const fastButton=$('#toggle-fast-ai');if(fastButton){fastButton.classList.toggle('active',state.fastAI);fastButton.setAttribute('aria-pressed',String(state.fastAI))}
+  updateHardModeButtons()
+  updateMusicButtons()
+  $('#players').innerHTML = state.players.length ? state.players.map((p,i)=>`
+    <div class="player ${state.phase==='war'&&i===state.turn?'active':''} ${p.eliminated?'eliminated':''} ${state.diplomacyTarget===p.id?'diplomacy-target':''}" data-player-id="${p.id}" title="${state.phase==='war'&&p.id!==state.players[state.turn]?.id?'Select for diplomacy':'Your realm'}"><span class="swatch" style="background:${p.color}"></span><div><b>${escapeHtml(p.name)}</b><small>${p.eliminated?'Eliminated':p.isHuman?'Human player':'AI player'}${state.phase==='war'&&p.id!==state.players[state.turn]?.id?agreementStatus(p.id):''}</small></div><strong>${state.territories.filter(t=>t.owner===p.id).length}</strong></div>`).join('') : '<p class="empty">The players will appear here.</p>'
+  document.querySelectorAll('.player[data-player-id]').forEach(row=>row.onclick=()=>{
+    const targetId=Number(row.dataset.playerId), current=state.players[state.turn]
+    if(state.phase==='war'&&current?.isHuman&&targetId!==current.id&&!state.players.find(p=>p.id===targetId)?.eliminated){state.diplomacyTarget=targetId;state.message=`${state.players[targetId].name} selected for diplomacy.`;render()}
+  })
+  document.querySelectorAll('.country').forEach(el => {
+    const t=state.territories.find(x=>x.id===el.dataset.id), owner=state.players.find(p=>p.id===t.owner)
+    el.style.fill = owner?.color || '#d7d1bd'
+    const source=state.territories.find(x=>x.id===state.selected)
+    const currentId=state.players[state.turn]?.id
+    const pactClass=hasAlliance(currentId,t.owner)?'allied-border':hasCeasefire(currentId,t.owner)?'ceasefire-border':''
+    el.setAttribute('class',`country ${t.id===state.selected?'selected':''} ${source?.neighbors.includes(t.id)&&t.owner!==currentId?'target':''} ${!canAttack(t)?'spent':''} ${t.rebel?'rebel':''} ${pactClass}`)
+    const pactLabel=hasAlliance(currentId,t.owner)?' · 🤝 Allied':hasCeasefire(currentId,t.owner)?' · 🕊 Ceasefire':''
+    el.querySelector('title').textContent=`${t.name} — ${t.rebel?'Rebels':owner?.name||'Unclaimed'}${pactLabel}`
+  })
+  renderActions(); renderModal(); renderDiplomacyOffers(); updatePlayerLabels()
+}
+
+function pactKey(first,second){return [first,second].sort((a,b)=>a-b).join(':')}
+function pactActive(list,first,second){return list.some(pact=>pact.key===pactKey(first,second)&&pact.until>state.roundCount)}
+function hasAlliance(first,second){return pactActive(state.alliances,first,second)}
+function hasCeasefire(first,second){return pactActive(state.ceasefires,first,second)}
+function isDiplomacyProtected(first,second){return first!==null&&second!==null&&(hasAlliance(first,second)||hasCeasefire(first,second))}
+function expireDiplomacy(){state.alliances=state.alliances.filter(pact=>pact.until>state.roundCount);state.ceasefires=state.ceasefires.filter(pact=>pact.until>state.roundCount);state.diplomacyOffers=state.diplomacyOffers.filter(offer=>offer.until>state.roundCount&&state.players.some(p=>p.id===offer.from&&!p.eliminated)&&state.players.some(p=>p.id===offer.to&&!p.eliminated))}
+function allianceCount(playerId){return state.alliances.filter(pact=>pact.key.split(':').map(Number).includes(playerId)&&pact.until>state.roundCount).length}
+function attackedThisRound(first,second){return Boolean(state.diplomacyAggression[pactKey(first,second)]===state.roundCount)}
+function agreementStatus(playerId){
+  const current=state.players[state.turn]?.id
+  if(current===undefined||playerId===current)return ''
+  if(hasAlliance(current,playerId))return ' · 🤝 Allied'
+  if(hasCeasefire(current,playerId))return ' · 🕊 Ceasefire'
+  return ''
+}
+function playersShareBorder(first,second){
+  return state.territories.some(t=>t.owner===first&&t.neighbors.some(id=>state.territories.find(other=>other.id===id)?.owner===second))
+}
+function diplomacyTargets(playerId){
+  return state.players.filter(target=>target.id!==playerId&&!target.eliminated)
+}
+function formPact(type,first,second){
+  if(attackedThisRound(first,second))return false
+  if(type==='alliance'&&(allianceCount(first)>=2||allianceCount(second)>=2))return false
+  const list=type==='alliance'?state.alliances:state.ceasefires
+  const other=type==='alliance'?state.ceasefires:state.alliances
+  const key=pactKey(first,second)
+  other.splice(0,other.length,...other.filter(pact=>pact.key!==key))
+  list.splice(0,list.length,...list.filter(pact=>pact.key!==key))
+  // Keep the agreement through the current round, then for its promised full rounds.
+  list.push({key,until:state.roundCount+(type==='alliance'?4:2)})
+  return true
+}
+function requestPact(type,targetId){
+  const current=state.players[state.turn]
+  const target=state.players.find(player=>player.id===Number(targetId))
+  if(!current||!target){state.message='That realm is not available for diplomacy.';render();return}
+  if(hasAlliance(current.id,target.id)||hasCeasefire(current.id,target.id)){state.message=`${target.name} already has an agreement with you.`;render();return}
+  if(attackedThisRound(current.id,target.id)){state.message=`${target.name} rejects diplomacy because you attacked this realm this round.`;render();return}
+  const sentKey=`${state.roundCount}:${current.id}:${target.id}:${type}`
+  if(state.diplomacySent[sentKey]){state.message=`You already sent that offer to ${target.name} this round.`;render();return}
+  state.diplomacySent[sentKey]=true
+  if(type==='alliance'&&allianceCount(current.id)>=2){state.message='Your realm already has the maximum of 2 alliances.';render();return}
+  const chance=type==='alliance'?.72:.84
+  if(target.isHuman||Math.random()<chance){if(formPact(type,current.id,target.id))state.message=`${target.name} accepted your ${type}.`;else state.message=`${target.name} cannot accept more alliances.`}
+  else state.message=`${target.name} rejected your ${type}.`
+  render()
+}
+function acceptDiplomacyOffer(index){
+  const offer=state.diplomacyOffers[index], current=state.players[state.turn]
+  if(!offer||!current||offer.to!==current.id)return
+  if(attackedThisRound(offer.from,offer.to)){state.diplomacyOffers.splice(index,1);state.message='This offer is rejected because an attack occurred between your realms this round.';render();return}
+  if(offer.type==='alliance'&&(allianceCount(current.id)>=2||allianceCount(offer.from)>=2)){state.diplomacyOffers.splice(index,1);state.message='This alliance cannot be formed because one realm already has 2 alliances.';render();return}
+  formPact(offer.type,offer.from,offer.to);state.diplomacyOffers.splice(index,1);state.message=`You accepted ${state.players[offer.from].name}'s ${offer.type}.`;render()
+}
+function rejectDiplomacyOffer(index){
+  const offer=state.diplomacyOffers[index], current=state.players[state.turn]
+  if(!offer||!current||offer.to!==current.id)return
+  state.diplomacyOffers.splice(index,1);state.message=`You rejected ${state.players[offer.from].name}'s ${offer.type}.`;render()
+}
+function renderDiplomacyOffers(){
+  const box=$('#offer-modal');if(!box)return
+  const current=state.players[state.turn], offers=state.phase==='war'&&current?.isHuman?state.diplomacyOffers.filter(offer=>offer.to===current.id):[]
+  if(!offers.length){box.innerHTML='';return}
+  box.innerHTML=`<div class="offer-backdrop"><div class="offer-card"><span class="eyebrow">INCOMING DIPLOMACY</span><h2>${offers.length>1?'AI REALMS ARE MAKING OFFERS':'AN AI REALM IS MAKING AN OFFER'}</h2>${offers.map(offer=>{const offerIndex=state.diplomacyOffers.indexOf(offer);return `<div class="offer-row"><p><b>${escapeHtml(state.players.find(player=>player.id===offer.from)?.name||'AI realm')}</b> proposes a <strong>${offer.type}</strong>.</p><div class="offer-actions"><button class="secondary" data-offer-accept="${offerIndex}">Accept</button><button class="secondary" data-offer-reject="${offerIndex}">Reject</button></div></div>`}).join('')}</div></div>`
+  box.querySelectorAll('[data-offer-accept]').forEach(button=>button.onclick=()=>acceptDiplomacyOffer(Number(button.dataset.offerAccept)))
+  box.querySelectorAll('[data-offer-reject]').forEach(button=>button.onclick=()=>rejectDiplomacyOffer(Number(button.dataset.offerReject)))
+}
+function aiDiplomacy(player){
+  if(Math.random()>.2)return
+  const targets=diplomacyTargets(player.id).filter(target=>!isDiplomacyProtected(player.id,target.id)&&!attackedThisRound(player.id,target.id)&&(!state.diplomacySent[`${state.roundCount}:${player.id}:${target.id}:alliance`]||!state.diplomacySent[`${state.roundCount}:${player.id}:${target.id}:ceasefire`]))
+  if(!targets.length)return
+  const target=targets.sort((a,b)=>state.territories.filter(t=>t.owner===b.id).length-state.territories.filter(t=>t.owner===a.id).length)[0]
+  const type=Math.random()<.7?'alliance':'ceasefire'
+  const sentKey=`${state.roundCount}:${player.id}:${target.id}:${type}`
+  if(state.diplomacySent[sentKey])return
+  state.diplomacySent[sentKey]=true
+  if(target.isHuman){if(!state.diplomacyOffers.some(offer=>offer.from===player.id&&offer.to===target.id)){state.diplomacyOffers.push({from:player.id,to:target.id,type,until:state.roundCount+4})}return}
+  formPact(type,player.id,target.id)
+}
+
+function renderActions() {
+  const box=$('#actions')
+  if(state.phase==='claim') {
+    box.innerHTML=`<div class="action-card"><label>Roll for territory</label><div class="dice-row">${state.players.map((p,i)=>`<div class="die-wrap"><span class="die">${state.dice[i]??'—'}</span><small>${p.name.replace('Commander ','P')}</small></div>`).join('')}</div><button class="primary" id="roll" ${state.claimWinner!==null?'disabled':''}>${state.claimWinner===null?'Roll all dice':state.players[state.claimWinner].isHuman?'Choose a country':'AI is choosing…'}</button></div>`
+    $('#roll').onclick=rollForClaim
+  } else if(state.phase==='war') {
+    const p=state.players[state.turn]
+    const content=state.battle?`<div class="battle-result"><div><small>ATTACK</small><b>${state.battle.attackerRoll}</b></div><span>vs</span><div><small>DEFEND</small><b>${state.battle.defenderRoll}</b></div></div>`:`<p>${p?.isHuman?(state.attackMode==='hard'?'Use each neighboring border territory once; End turn when ready.':state.attackMode==='moderate'?'Your realm has up to 3 attacks total this turn.':'Select your country, then choose a highlighted neighboring enemy.'):'The AI is considering its borders…'}</p>`
+    const targets=p?.isHuman?diplomacyTargets(p.id):[]
+    const selectedTarget=targets.find(target=>target.id===state.diplomacyTarget)?.id??targets[0]?.id
+    if(selectedTarget!==undefined)state.diplomacyTarget=selectedTarget
+    const diplomacy=p?.isHuman?`<div class="action-card diplomacy-card"><label>Diplomacy · Click a country or choose below</label>${targets.length?`<select id="diplomacy-target">${targets.map(target=>`<option value="${target.id}" ${target.id===selectedTarget?'selected':''}>${escapeHtml(target.name)}${agreementStatus(target.id)}</option>`).join('')}</select><div class="diplomacy-buttons"><button id="make-alliance" class="secondary">Alliance · 3 turns</button><button id="make-ceasefire" class="secondary">Ceasefire · 1 turn</button></div>`:'<p>No active realms are available.</p>'}</div>`:''
+    box.innerHTML=`${diplomacy}<div class="action-card"><label>Battle orders</label>${content}${p?.isHuman?'<button class="primary" id="end-turn">End turn</button>':''}</div>`
+    if(p?.isHuman) $('#end-turn').onclick=endTurn
+    if(p?.isHuman&&targets.length){$('#diplomacy-target').onchange=e=>{state.diplomacyTarget=Number(e.target.value)};$('#make-alliance').onclick=()=>requestPact('alliance',$('#diplomacy-target').value);$('#make-ceasefire').onclick=()=>requestPact('ceasefire',$('#diplomacy-target').value)}
+  } else box.innerHTML=''
+}
+
+function renderModal() {
+  const modal=$('#modal')
+  if(state.phase==='setup') modal.innerHTML=`<div class="modal-backdrop"><div class="setup-card"><span class="eyebrow">NEW CAMPAIGN</span><h1>Claim the old world.</h1><p>Each player starts with one connected realm. Hold your borders and conquer the continent.</p><div class="setup-grid"><label>Human players<select id="humans"><option value="1">1 player</option><option value="2">2 players</option></select></label><label>Total players<select id="total">${Array.from({length:18},(_,i)=>i+3).map(count=>`<option value="${count}">${count} players</option>`).join('')}</select></label></div><div class="name-editor"><span>REALM NAMES · OPTIONAL</span>${Array.from({length:state.playerCount},(_,i)=>`<label><i style="background:${COLORS[i]}"></i><small>${i<state.humanCount?'Human':'AI'}</small><input id="player-name-${i}" value="${escapeHtml(state.playerNames[i])}" placeholder="Automatic by location" maxlength="24" /></label>`).join('')}</div><button class="music-start ${state.musicOn?'active':''}" id="setup-music" aria-pressed="${state.musicOn}">♫ Music: ${state.musicOn?'On':'Off'}</button><button class="music-start ${state.attackMode!=='normal'?'active':''}" id="setup-hard-mode" aria-pressed="${state.attackMode!=='normal'}">Mode: ${state.attackMode==='moderate'?'Moderate · 3 total':state.attackMode==='hard'?'Hard · all territories':'Normal · 1 per territory'}</button><button class="primary large" id="begin">Begin campaign <span>→</span></button><small>3–20 players · Empty names are generated by location</small></div></div>`
+  else if(state.phase==='gameover') modal.innerHTML=`<div class="modal-backdrop"><div class="setup-card victory"><span class="eyebrow">TOTAL VICTORY</span><h1>${state.message}</h1><button class="primary large" id="again">Play again</button></div></div>`
+  else { modal.innerHTML=''; return }
+  if(state.phase==='setup') { $('#humans').value=state.humanCount; $('#total').value=state.playerCount; $('#humans').onchange=e=>{state.humanCount=+e.target.value;renderModal()}; $('#total').onchange=e=>{state.playerCount=+e.target.value;renderModal()}; Array.from({length:state.playerCount},(_,i)=>{$(`#player-name-${i}`).oninput=e=>state.playerNames[i]=e.target.value}); $('#setup-music').onclick=toggleMusic; $('#setup-hard-mode').onclick=toggleHardMode; $('#begin').onclick=startGame }
+  else $('#again').onclick=()=>{state.phase='setup';render()}
+}
+
+function startGame() {
+  state.players=Array.from({length:state.playerCount},(_,i)=>({id:i,name:`Player ${i+1}`,color:COLORS[i],isHuman:i<state.humanCount,eliminated:false}))
+  assignConnectedRealms()
+  assignRealmNames()
+  Object.assign(state,{phase:'war',turn:0,turnCount:0,roundCount:0,alliances:[],ceasefires:[],diplomacyTarget:null,diplomacyOffers:[],diplomacySent:{},diplomacyAggression:{},attacksThisTurn:{},selected:null,claimWinner:null,dice:[],battle:null,message:turnMessage(state.players[0])}); render()
+}
+
+function assignRealmNames() {
+  const available=[...REALM_IDENTITIES]
+  const unnamed=[]
+  state.players.forEach((player,index)=>{
+    const custom=state.playerNames[index].trim()
+    if(custom){player.name=custom;return}
+    const owned=largestLandComponent(player.id)
+    const totalWeight=owned.reduce((sum,t)=>sum+Math.max(t.mapArea,1),0)
+    const center=owned.reduce((point,t)=>{const weight=Math.max(t.mapArea,1);point[0]+=t.geoCenter[0]*weight;point[1]+=t.geoCenter[1]*weight;return point},[0,0]).map(value=>value/totalWeight)
+    unnamed.push({player,center})
+  })
+  while(unnamed.length) {
+    let best
+    unnamed.forEach(realm=>available.forEach(identity=>{
+      const distance=Math.hypot((realm.center[0]-identity.point[0])*Math.cos(realm.center[1]*Math.PI/180),realm.center[1]-identity.point[1])
+      if(!best||distance<best.distance)best={realm,identity,distance}
+    }))
+    best.realm.player.name=best.identity.name
+    unnamed.splice(unnamed.indexOf(best.realm),1)
+    available.splice(available.indexOf(best.identity),1)
+  }
+}
+
+function mapDistance(first, second) {
+  const a=d3.geoCentroid(first.feature), b=d3.geoCentroid(second.feature)
+  const latitude=(a[1]+b[1])/2*Math.PI/180
+  return Math.hypot((a[0]-b[0])*Math.cos(latitude),a[1]-b[1])
+}
+
+function assignConnectedRealms() {
+  state.territories.forEach(t=>{t.owner=null;t.rebel=false;t.attacked=false;t.attacks=0})
+  const seeds=[state.territories[Math.floor(Math.random()*state.territories.length)]]
+  while(seeds.length<state.players.length) {
+    const available=state.territories.filter(t=>!seeds.includes(t))
+    seeds.push(available.reduce((best,candidate) => {
+      const candidateDistance=Math.min(...seeds.map(seed=>mapDistance(candidate,seed)))
+      const bestDistance=Math.min(...seeds.map(seed=>mapDistance(best,seed)))
+      return candidateDistance>bestDistance?candidate:best
+    }))
+  }
+  seeds.forEach((seed,index)=>seed.owner=state.players[index].id)
+  let remaining=state.territories.length-seeds.length
+  while(remaining>0) {
+    let progress=false
+    const playerOrder=[...state.players].sort((a,b)=>state.territories.filter(t=>t.owner===a.id).length-state.territories.filter(t=>t.owner===b.id).length)
+    for(const player of playerOrder) {
+      const ownedIds=new Set(state.territories.filter(t=>t.owner===player.id).map(t=>t.id))
+      const frontier=state.territories.filter(t=>t.owner===null&&t.neighbors.some(id=>ownedIds.has(id)))
+      if(!frontier.length)continue
+      frontier.sort((a,b)=>b.neighbors.filter(id=>state.territories.find(t=>t.id===id)?.owner===null).length-a.neighbors.filter(id=>state.territories.find(t=>t.id===id)?.owner===null).length)
+      const bestChoices=frontier.slice(0,Math.min(3,frontier.length))
+      bestChoices[Math.floor(Math.random()*bestChoices.length)].owner=player.id
+      remaining--;progress=true
+      if(remaining===0)break
+    }
+    if(!progress) {
+      const territory=state.territories.find(t=>t.owner===null)
+      const nearest=state.territories.filter(t=>t.owner!==null).reduce((best,candidate)=>mapDistance(territory,candidate)<mapDistance(territory,best)?candidate:best)
+      territory.owner=nearest.owner;remaining--
+    }
+  }
+}
+
+function rollForClaim() {
+  if(state.claimWinner!==null)return
+  let results,winner
+  do { results=state.players.map(roll); winner=results.indexOf(Math.max(...results)) } while(results.filter(v=>v===Math.max(...results)).length>1)
+  state.dice=results; state.claimWinner=winner; state.message=`${state.players[winner].name} rolled highest and may claim one territory.`; render()
+  if(!state.players[winner].isHuman) state.aiTimer=setTimeout(()=>claimForAI(winner),800)
+}
+
+function claimForAI(playerId) {
+  const options=state.territories.filter(t=>t.owner===null), owned=state.territories.filter(t=>t.owner===playerId)
+  const adjacent=options.filter(t=>owned.some(o=>o.neighbors.includes(t.id))), pool=adjacent.length?adjacent:options
+  if(pool.length) finishClaim(pool[Math.floor(Math.random()*pool.length)].id,playerId)
+}
+
+function finishClaim(id,playerId) {
+  const t=state.territories.find(x=>x.id===id); if(!t||t.owner!==null)return
+  t.owner=playerId; state.claimWinner=null; state.dice=[]; state.selected=null
+  if(state.territories.every(x=>x.owner!==null)){state.phase='war';state.turn=0;state.message=`${state.players[0].name} begins the first campaign turn.`;render();runAI()}
+  else {state.message=`${state.players[playerId].name} claimed ${t.name}. Roll again.`;render()}
+}
+
+function territoryClick(id) {
+  const t=state.territories.find(x=>x.id===id)
+  if(state.phase==='claim'){if(state.claimWinner!==null&&state.players[state.claimWinner].isHuman&&t.owner===null)finishClaim(id,state.claimWinner);return}
+  const p=state.players[state.turn]; if(state.phase!=='war'||!p?.isHuman)return
+  if(!state.selected){if(t.owner!==p.id)state.message='Select one of your own territories first.';else if(!canAttack(t))state.message=`${t.name} has no attacks left this turn.`;else{state.selected=id;state.message=`Choose a neighboring enemy to attack from ${t.name}.`}render();return}
+  const source=state.territories.find(x=>x.id===state.selected)
+  if(id===source.id){state.selected=null;state.message='Attack cancelled.'}
+  else if(t.owner===p.id){state.selected=id;state.message=`Now attacking from ${t.name}.`}
+  else if(!source.neighbors.includes(id))state.message=`${source.name} does not border ${t.name}.`
+  else if(isDiplomacyProtected(p.id,t.owner))state.message=`You cannot attack ${t.name} while an agreement is active.`
+  else {resolveBattle(source.id,id,p.id);return} render()
+}
+
+function resolveBattle(sourceId,targetId,playerId) {
+  const source=state.territories.find(t=>t.id===sourceId),target=state.territories.find(t=>t.id===targetId),defenderId=target.owner
+  if(isDiplomacyProtected(playerId,defenderId)){state.selected=null;state.message='An active alliance or ceasefire prevents this attack.';render();return}
+  const a=roll(),d=roll(),conquered=a>d
+  source.attacks=1;source.attacked=true;state.attacksThisTurn[playerId]=(state.attacksThisTurn[playerId]||0)+1;if(defenderId!==null&&defenderId!==playerId)state.diplomacyAggression[pactKey(playerId,defenderId)]=state.roundCount;if(conquered){target.owner=playerId;target.rebel=false;target.attacks=1;target.attacked=true}state.battle={attackerRoll:a,defenderRoll:d};state.selected=null
+  state.message=conquered?`${state.players[playerId].name} conquered ${target.name} from ${source.name}!`:`${target.name} held the line against ${source.name}.`
+  if(conquered&&defenderId!==null&&!state.territories.some(t=>t.owner===defenderId)) {
+    const defeated=state.players.find(p=>p.id===defenderId)
+    defeated.eliminated=true
+    state.message+=` ${defeated.name} has been eliminated.`
+  }
+  const survivors=state.players.filter(p=>state.territories.some(t=>t.owner===p.id))
+  if(survivors.length===1){state.phase='gameover';state.message=`${survivors[0].name} is the last realm standing!`} render()
+}
+
+function spawnRebellion(){
+  if(state.attackMode!=='hard')return ''
+  const active=state.players.filter(player=>!player.eliminated)
+  const counts=active.map(player=>({player,count:state.territories.filter(t=>t.owner===player.id).length})).filter(entry=>entry.count>0)
+  if(!counts.length)return ''
+  const max=Math.max(...counts.map(entry=>entry.count))
+  const leaders=counts.filter(entry=>entry.count===max)
+  const leader=leaders[Math.floor(Math.random()*leaders.length)].player
+  const candidates=state.territories.filter(t=>t.owner===leader.id&&!t.rebel)
+  if(!candidates.length)return ''
+  const territory=candidates[Math.floor(Math.random()*candidates.length)]
+  territory.owner=null;territory.rebel=true;territory.attacked=true;territory.attacks=1
+  return ` Rebels rose in ${territory.name}; conquer it to restore the realm.`
+}
+function endTurn(){
+  clearTimeout(state.aiTimer);state.turnCount++;state.territories.forEach(t=>{t.attacked=false;t.attacks=0});state.attacksThisTurn={}
+  const active=state.players.filter(player=>!player.eliminated),currentIndex=active.findIndex(player=>player.id===state.players[state.turn]?.id),roundComplete=currentIndex===active.length-1
+  if(roundComplete){state.roundCount++;state.diplomacySent={};expireDiplomacy();state.diplomacyAggression={}}
+  state.turn=active[(currentIndex+1)%active.length]?.id??state.turn
+  state.selected=null;state.battle=null;state.message=turnMessage(state.players[state.turn])+(roundComplete?spawnRebellion():'');render();runAI()
+}
+function runAI(){const p=state.players[state.turn];if(state.phase!=='war'||!p||p.isHuman)return;if(p.eliminated){endTurn();return}const thinkDelay=state.fastAI?35:800,finishDelay=state.fastAI?45:1000,noAttackDelay=state.fastAI?45:700;state.aiTimer=setTimeout(()=>{expireDiplomacy();aiDiplomacy(p);const owned=state.territories.filter(t=>t.owner===p.id&&canAttack(t)),attacks=owned.flatMap(s=>s.neighbors.map(id=>state.territories.find(t=>t.id===id)).filter(t=>t&&t.owner!==p.id&&!isDiplomacyProtected(p.id,t.owner)).map(t=>({s,t})));if(attacks.length){const x=attacks[Math.floor(Math.random()*attacks.length)];resolveBattle(x.s.id,x.t.id,p.id);if(state.phase==='war')state.aiTimer=setTimeout(state.attackMode==='normal'?endTurn:runAI,finishDelay)}else{state.message=`${p.name} has no available border attacks.`;render();state.aiTimer=setTimeout(endTurn,noAttackDelay)}},thinkDelay)}
+
+$('#new-game').onclick=()=>{clearTimeout(state.aiTimer);state.phase='setup';render()}
+$('#zoom-in').onclick=()=>changeZoom(1.5)
+$('#zoom-out').onclick=()=>changeZoom(1/1.5)
+$('#zoom-reset').onclick=()=>{if(mapZoom)d3.select('.map').call(mapZoom.transform,d3.zoomIdentity)}
+$('#toggle-labels').onclick=()=>{state.showLabels=!state.showLabels;updateLabels()}
+$('#toggle-player-labels').onclick=()=>{state.showPlayerLabels=!state.showPlayerLabels;updatePlayerLabels()}
+$('#player-label-size').oninput=e=>{state.playerLabelSize=Number(e.target.value);updatePlayerLabels()}
+$('#toggle-fast-ai').onclick=()=>{state.fastAI=!state.fastAI;const button=$('#toggle-fast-ai');button.classList.toggle('active',state.fastAI);button.setAttribute('aria-pressed',String(state.fastAI));const player=state.players[state.turn];if(state.phase==='war'&&player&&!player.isHuman){clearTimeout(state.aiTimer);runAI()}}
+function toggleHardMode(){const modes=['normal','moderate','hard'];state.attackMode=modes[(modes.indexOf(state.attackMode)+1)%modes.length];updateHardModeButtons();if(state.phase==='war')render()}
+$('#toggle-hard-mode').onclick=toggleHardMode
+$('#toggle-music').onclick=toggleMusic
+function saveGame(){
+  if(state.phase==='setup'){state.message='Start a campaign before saving.';render();return}
+  const name=window.prompt('Save campaign as:','My campaign')?.trim()
+  if(!name)return
+  try{
+    const snapshot={...state,aiTimer:null,saveName:name,savedAt:new Date().toISOString()}
+    localStorage.setItem(`borderline-dominion-save:${name}`,JSON.stringify(snapshot))
+    state.message=`Campaign saved as “${name}”.`;render()
+  }catch(error){state.message='Could not save this campaign in browser storage.';render()}
+}
+function loadGame(){
+  const prefix='borderline-dominion-save:'
+  const names=Object.keys(localStorage).filter(key=>key.startsWith(prefix)).map(key=>key.slice(prefix.length))
+  if(!names.length){state.message='No saved campaigns found in this browser.';render();return}
+  const name=window.prompt(`Available saves:\n${names.join('\n')}\n\nEnter a save name to load:`)?.trim()
+  if(!name)return
+  const raw=localStorage.getItem(`borderline-dominion-save:${name}`)
+  if(!raw){state.message=`No saved campaign named “${name}”.`;render();return}
+  try{
+    clearTimeout(state.aiTimer)
+    Object.assign(state,JSON.parse(raw),{aiTimer:null})
+    render()
+    if(state.phase==='war'&&!state.players[state.turn]?.isHuman)runAI()
+  }catch(error){state.message='That saved campaign could not be loaded.';render()}
+}
+$('#save-game').onclick=saveGame
+$('#load-game').onclick=loadGame
+document.addEventListener('keydown',event=>{if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='s'){event.preventDefault();saveGame()}})
+document.querySelector('#root').insertAdjacentHTML('beforeend','<div class="loading" id="loader"><span class="spinner"></span>Drawing the frontiers…</div>')
+loadMap().then(()=>$('#loader')?.remove())
