@@ -76,7 +76,7 @@ document.querySelector('#root').innerHTML = `
     <header>
       <div class="brand"><span class="brand-mark">BD</span><div><b>Borderline</b><em>Dominion</em></div></div>
       <div class="turn-banner"><span id="phase-label">THE OLD WORLD</span><strong id="message">Awaiting commanders</strong></div>
-      <div class="header-actions"><button class="ghost" id="save-game">Save</button><button class="ghost" id="load-game">Load</button><button class="ghost" id="new-game">New game</button></div>
+      <div class="header-actions"><button class="ghost" id="save-game">Save</button><button class="ghost" id="load-game">Load</button><button class="ghost" id="delete-game">Delete</button><button class="ghost" id="new-game">New game</button></div>
     </header>
     <section class="game-shell">
       <div class="map-wrap">
@@ -691,8 +691,19 @@ function loadGame(){
     if(state.phase==='war'&&!state.players[state.turn]?.isHuman)runAI()
   }catch(error){state.message='That saved campaign could not be loaded.';render()}
 }
+function deleteGame(){
+  const prefix='borderline-dominion-save:'
+  const names=Object.keys(localStorage).filter(key=>key.startsWith(prefix)).map(key=>key.slice(prefix.length))
+  if(!names.length){state.message='No saved campaigns found in this browser.';render();return}
+  const name=window.prompt(`Saved campaigns:\n${names.join('\n')}\n\nEnter the save name to delete:`)?.trim()
+  if(!name)return
+  const key=`${prefix}${name}`
+  if(!localStorage.getItem(key)){state.message=`No saved campaign named “${name}”.`;render();return}
+  if(window.confirm(`Delete saved campaign “${name}”?`)){localStorage.removeItem(key);state.message=`Deleted saved campaign “${name}”.`;render()}
+}
 $('#save-game').onclick=saveGame
 $('#load-game').onclick=loadGame
+$('#delete-game').onclick=deleteGame
 document.addEventListener('keydown',event=>{if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='s'){event.preventDefault();saveGame()}})
 document.querySelector('#root').insertAdjacentHTML('beforeend','<div class="loading" id="loader"><span class="spinner"></span>Drawing the frontiers…</div>')
 loadMap().then(()=>$('#loader')?.remove())
