@@ -61,7 +61,7 @@ function orientGeometry(geometry) {
 const state = {
   territories: [], players: [], humanCount: 1, playerCount: 4, phase: 'setup', turn: 0,
   claimWinner: null, selected: null, dice: [], battle: null, message: 'Prepare your campaign.', aiTimer: null, fastAI: false, musicOn: false,
-  turnCount: 0, roundCount: 0, alliances: [], ceasefires: [], diplomacyTarget: null, diplomacyOffers: [], diplomacySent: {}, diplomacyAggression: {}, attackMode: 'normal', attacksThisTurn: {}, musicStyle: 'campaign',
+  turnCount: 0, roundCount: 0, alliances: [], ceasefires: [], diplomacyTarget: null, diplomacyOffers: [], diplomacySent: {}, diplomacyAggression: {}, attackMode: 'normal', attacksThisTurn: {}, musicStyle: 'campaign', strengthsOn: false,
   showLabels: true, showPlayerLabels: true,
   playerNames: Array(20).fill(''), playerLabelSize: 9
 }
@@ -95,7 +95,7 @@ document.querySelector('#root').innerHTML = `
           <button id="toggle-labels" class="names-button" aria-pressed="false">Place names</button>
           <button id="toggle-player-labels" class="names-button" aria-pressed="false">Player names</button>
           <button id="toggle-fast-ai" class="names-button" aria-pressed="false" title="AI turns play immediately; human turns stay manual">Fast AI</button>
-          <button id="toggle-hard-mode" class="names-button" aria-pressed="false" title="Cycle Normal, Moderate, and Hard attack modes">Mode: Normal · 1 attack</button>
+          <button id="toggle-hard-mode" class="names-button" aria-pressed="false" title="Cycle Normal, Moderate, and Hard attack modes">Mode: Normal · 1 attack</button><button id="toggle-strengths" class="names-button" aria-pressed="false" title="Toggle attack and defense strength bonuses">Strengths: Off</button>
           <button id="toggle-music" class="names-button" aria-pressed="false" title="Toggle the campaign soundtrack">♫ Music: Off</button><select id="music-style" class="music-style" aria-label="Music style"><option value="campaign">Campaign</option><option value="tension">Battle tension</option><option value="march">War march</option><option value="shadow">Dark frontier</option><option value="calm">Quiet command</option></select>
           <label class="label-size-control">Name size <input id="player-label-size" type="range" min="4" max="14" step="1" value="9"><output id="player-label-size-value">9</output></label>
         </div>
@@ -127,13 +127,13 @@ async function loadMap() {
     const idByIndex = new Map(selected.map(({ index }) => [index, String(object.geometries[index].id)]))
     const countries = selected.map(({ index, name }) => ({
       id: String(object.geometries[index].id), name, feature: collection.features[index],
-      neighbors: allNeighbors[index].map(i => idByIndex.get(i)).filter(Boolean), owner: null, rebel: false, attacked: false, attacks: 0
+      neighbors: allNeighbors[index].map(i => idByIndex.get(i)).filter(Boolean), owner: null, rebel: false, attacked: false, attacks: 0, attackStrength: 0, defenseStrength: 0
     }))
     const russianRegions = russia.features.map(feature => {
       orientGeometry(feature.geometry)
       return {
         id: `ru-${feature.properties.id}`, name: feature.properties.name, feature,
-        neighbors: feature.properties.neighbors.map(id => `ru-${id}`), owner: null, rebel: false, attacked: false, attacks: 0
+        neighbors: feature.properties.neighbors.map(id => `ru-${id}`), owner: null, rebel: false, attacked: false, attacks: 0, attackStrength: 0, defenseStrength: 0
       }
     })
     state.territories = [...countries, ...russianRegions]
@@ -353,9 +353,15 @@ function updateHardModeButtons() {
   const rules=$('#rules-text')
   if(rules)rules.textContent=state.attackMode==='hard'
     ?'Hard mode: every territory may attack one neighboring enemy, and the realm continues until no legal attacks remain. Moderate mode allows 3 total attacks per realm. Normal mode allows 1 attack per territory. Ties favor the defender.'
-    :state.attackMode==='moderate'
+      :state.attackMode==='moderate'
       ?'Moderate mode: each realm can make up to 3 total attacks per turn. Each territory fades after attacking once. Only neighboring enemies are valid.'
       :'Each territory can attack once per turn. Only shared borders and marked sea routes are valid. Ties favor the defender. Alliances last 3 turns; ceasefires last 1.'
+  if(rules&&state.strengthsOn)rules.textContent+=' Strengths active: successful attacks improve ⚔ attack strength; successful defense improves 🛡 defense strength, capped at +3.'
+}
+function updateStrengthButtons(){
+  const label=`Strengths: ${state.strengthsOn?'On':'Off'}`
+  const button=$('#toggle-strengths');if(button){button.textContent=label;button.classList.toggle('active',state.strengthsOn);button.setAttribute('aria-pressed',String(state.strengthsOn))}
+  const setup=$('#setup-strengths');if(setup){setup.textContent=label;setup.classList.toggle('active',state.strengthsOn);setup.setAttribute('aria-pressed',String(state.strengthsOn))}
 }
 
 function attackLimit(){return state.attackMode==='moderate'?3:Infinity}
@@ -389,6 +395,7 @@ function render() {
   $('#message').textContent = state.phase==='setup'?'Awaiting commanders':state.phase==='gameover'?'Campaign complete':state.message
   const fastButton=$('#toggle-fast-ai');if(fastButton){fastButton.classList.toggle('active',state.fastAI);fastButton.setAttribute('aria-pressed',String(state.fastAI))}
   updateHardModeButtons()
+  updateStrengthButtons()
   updateMusicButtons()
   $('#players').innerHTML = state.players.length ? state.players.map((p,i)=>`
     <div class="player ${state.phase==='war'&&i===state.turn?'active':''} ${p.eliminated?'eliminated':''} ${state.diplomacyTarget===p.id?'diplomacy-target':''}" data-player-id="${p.id}" title="${state.phase==='war'&&p.id!==state.players[state.turn]?.id?'Select for diplomacy':'Your realm'}"><span class="swatch" style="background:${p.color}"></span><div><b>${escapeHtml(p.name)}</b><small>${p.eliminated?'Eliminated':p.isHuman?'Human player':'AI player'}${state.phase==='war'&&p.id!==state.players[state.turn]?.id?agreementStatus(p.id):''}</small></div><strong>${state.territories.filter(t=>t.owner===p.id).length}</strong></div>`).join('') : '<p class="empty">The players will appear here.</p>'
@@ -404,7 +411,8 @@ function render() {
     const pactClass=hasAlliance(currentId,t.owner)?'allied-border':hasCeasefire(currentId,t.owner)?'ceasefire-border':''
     el.setAttribute('class',`country ${t.id===state.selected?'selected':''} ${source?.neighbors.includes(t.id)&&t.owner!==currentId?'target':''} ${!canAttack(t)?'spent':''} ${t.rebel?'rebel':''} ${pactClass}`)
     const pactLabel=hasAlliance(currentId,t.owner)?' · 🤝 Allied':hasCeasefire(currentId,t.owner)?' · 🕊 Ceasefire':''
-    el.querySelector('title').textContent=`${t.name} — ${t.rebel?'Rebels':owner?.name||'Unclaimed'}${pactLabel}`
+    const strengthLabel=state.strengthsOn?` · ⚔ +${t.attackStrength||0} 🛡 +${t.defenseStrength||0}`:''
+    el.querySelector('title').textContent=`${t.name} — ${t.rebel?'Rebels':owner?.name||'Unclaimed'}${pactLabel}${strengthLabel}`
   })
   renderActions(); renderModal(); renderDiplomacyOffers(); updatePlayerLabels()
 }
@@ -497,7 +505,7 @@ function renderActions() {
     $('#roll').onclick=rollForClaim
   } else if(state.phase==='war') {
     const p=state.players[state.turn]
-    const content=state.battle?`<div class="battle-result"><div><small>ATTACK</small><b>${state.battle.attackerRoll}</b></div><span>vs</span><div><small>DEFEND</small><b>${state.battle.defenderRoll}</b></div></div>`:`<p>${p?.isHuman?(state.attackMode==='hard'?'Use each neighboring border territory once; End turn when ready.':state.attackMode==='moderate'?'Your realm has up to 3 attacks total this turn.':'Select your country, then choose a highlighted neighboring enemy.'):'The AI is considering its borders…'}</p>`
+    const content=state.battle?`<div class="battle-result"><div><small>ATTACK${state.strengthsOn?' · ⚔':''}</small><b>${state.battle.attackerRoll}</b></div><span>vs</span><div><small>DEFEND${state.strengthsOn?' · 🛡':''}</small><b>${state.battle.defenderRoll}</b></div></div>`:`<p>${p?.isHuman?(state.attackMode==='hard'?'Use each neighboring border territory once; End turn when ready.':state.attackMode==='moderate'?'Your realm has up to 3 attacks total this turn.':'Select your country, then choose a highlighted neighboring enemy.'):'The AI is considering its borders…'}</p>`
     const targets=p?.isHuman?diplomacyTargets(p.id):[]
     const selectedTarget=targets.find(target=>target.id===state.diplomacyTarget)?.id??targets[0]?.id
     if(selectedTarget!==undefined)state.diplomacyTarget=selectedTarget
@@ -510,10 +518,10 @@ function renderActions() {
 
 function renderModal() {
   const modal=$('#modal')
-  if(state.phase==='setup') modal.innerHTML=`<div class="modal-backdrop"><div class="setup-card"><span class="eyebrow">NEW CAMPAIGN</span><h1>Claim the old world.</h1><p>Each player starts with one connected realm. Hold your borders and conquer the continent.</p><div class="setup-grid"><label>Human players<select id="humans"><option value="1">1 player</option><option value="2">2 players</option><option value="3">3 players</option></select></label><label>Total players<select id="total">${Array.from({length:18},(_,i)=>i+3).map(count=>`<option value="${count}">${count} players</option>`).join('')}</select></label></div><div class="name-editor"><span>REALM NAMES · OPTIONAL</span>${Array.from({length:state.playerCount},(_,i)=>`<label><i style="background:${COLORS[i]}"></i><small>${i<state.humanCount?'Human':'AI'}</small><input id="player-name-${i}" value="${escapeHtml(state.playerNames[i])}" placeholder="Automatic by location" maxlength="24" /></label>`).join('')}</div><button class="music-start ${state.musicOn?'active':''}" id="setup-music" aria-pressed="${state.musicOn}">♫ Music: ${state.musicOn?'On':'Off'}</button><label class="music-choice">Music style<select id="setup-music-style"><option value="campaign">Campaign</option><option value="tension">Battle tension</option><option value="march">War march</option><option value="shadow">Dark frontier</option><option value="calm">Quiet command</option></select></label><button class="music-start ${state.attackMode!=='normal'?'active':''}" id="setup-hard-mode" aria-pressed="${state.attackMode!=='normal'}">Mode: ${state.attackMode==='moderate'?'Moderate · 3 total':state.attackMode==='hard'?'Hard · all territories':'Normal · 1 per territory'}</button><button class="primary large" id="begin">Begin campaign <span>→</span></button><small>3–20 players · Empty names are generated by location</small></div></div>`
+  if(state.phase==='setup') modal.innerHTML=`<div class="modal-backdrop"><div class="setup-card"><span class="eyebrow">NEW CAMPAIGN</span><h1>Claim the old world.</h1><p>Each player starts with one connected realm. Hold your borders and conquer the continent.</p><div class="setup-grid"><label>Human players<select id="humans"><option value="1">1 player</option><option value="2">2 players</option><option value="3">3 players</option></select></label><label>Total players<select id="total">${Array.from({length:18},(_,i)=>i+3).map(count=>`<option value="${count}">${count} players</option>`).join('')}</select></label></div><div class="name-editor"><span>REALM NAMES · OPTIONAL</span>${Array.from({length:state.playerCount},(_,i)=>`<label><i style="background:${COLORS[i]}"></i><small>${i<state.humanCount?'Human':'AI'}</small><input id="player-name-${i}" value="${escapeHtml(state.playerNames[i])}" placeholder="Automatic by location" maxlength="24" /></label>`).join('')}</div><button class="music-start ${state.musicOn?'active':''}" id="setup-music" aria-pressed="${state.musicOn}">♫ Music: ${state.musicOn?'On':'Off'}</button><label class="music-choice">Music style<select id="setup-music-style"><option value="campaign">Campaign</option><option value="tension">Battle tension</option><option value="march">War march</option><option value="shadow">Dark frontier</option><option value="calm">Quiet command</option></select></label><button class="music-start ${state.strengthsOn?'active':''}" id="setup-strengths" aria-pressed="${state.strengthsOn}">Strengths: ${state.strengthsOn?'On':'Off'}</button><button class="music-start ${state.attackMode!=='normal'?'active':''}" id="setup-hard-mode" aria-pressed="${state.attackMode!=='normal'}">Mode: ${state.attackMode==='moderate'?'Moderate · 3 total':state.attackMode==='hard'?'Hard · all territories':'Normal · 1 per territory'}</button><button class="primary large" id="begin">Begin campaign <span>→</span></button><small>3–20 players · Empty names are generated by location</small></div></div>`
   else if(state.phase==='gameover') modal.innerHTML=`<div class="modal-backdrop"><div class="setup-card victory"><span class="eyebrow">TOTAL VICTORY</span><h1>${state.message}</h1><button class="primary large" id="again">Play again</button></div></div>`
   else { modal.innerHTML=''; return }
-  if(state.phase==='setup') { $('#humans').value=state.humanCount; $('#total').value=state.playerCount; $('#setup-music-style').value=state.musicStyle; $('#humans').onchange=e=>{state.humanCount=+e.target.value;renderModal()}; $('#total').onchange=e=>{state.playerCount=+e.target.value;renderModal()}; $('#setup-music-style').onchange=e=>{state.musicStyle=e.target.value}; Array.from({length:state.playerCount},(_,i)=>{$(`#player-name-${i}`).oninput=e=>state.playerNames[i]=e.target.value}); $('#setup-music').onclick=toggleMusic; $('#setup-hard-mode').onclick=toggleHardMode; $('#begin').onclick=startGame }
+  if(state.phase==='setup') { $('#humans').value=state.humanCount; $('#total').value=state.playerCount; $('#setup-music-style').value=state.musicStyle; $('#humans').onchange=e=>{state.humanCount=+e.target.value;renderModal()}; $('#total').onchange=e=>{state.playerCount=+e.target.value;renderModal()}; $('#setup-music-style').onchange=e=>{state.musicStyle=e.target.value}; Array.from({length:state.playerCount},(_,i)=>{$(`#player-name-${i}`).oninput=e=>state.playerNames[i]=e.target.value}); $('#setup-music').onclick=toggleMusic; $('#setup-strengths').onclick=toggleStrengths; $('#setup-hard-mode').onclick=toggleHardMode; $('#begin').onclick=startGame }
   else $('#again').onclick=()=>{state.phase='setup';render()}
 }
 
@@ -554,7 +562,7 @@ function mapDistance(first, second) {
 }
 
 function assignConnectedRealms() {
-  state.territories.forEach(t=>{t.owner=null;t.rebel=false;t.attacked=false;t.attacks=0})
+  state.territories.forEach(t=>{t.owner=null;t.rebel=false;t.attacked=false;t.attacks=0;t.attackStrength=0;t.defenseStrength=0})
   const seeds=[state.territories[Math.floor(Math.random()*state.territories.length)]]
   while(seeds.length<state.players.length) {
     const available=state.territories.filter(t=>!seeds.includes(t))
@@ -624,8 +632,10 @@ function territoryClick(id) {
 function resolveBattle(sourceId,targetId,playerId) {
   const source=state.territories.find(t=>t.id===sourceId),target=state.territories.find(t=>t.id===targetId),defenderId=target.owner
   if(isDiplomacyProtected(playerId,defenderId)){state.selected=null;state.message='An active alliance or ceasefire prevents this attack.';render();return}
-  const a=roll(),d=roll(),conquered=a>d
+  const a=roll(),d=roll(),attackTotal=a+(state.strengthsOn?source.attackStrength||0:0),defenseTotal=d+(state.strengthsOn?target.defenseStrength||0:0),conquered=attackTotal>defenseTotal
   source.attacks=1;source.attacked=true;state.attacksThisTurn[playerId]=(state.attacksThisTurn[playerId]||0)+1;if(defenderId!==null&&defenderId!==playerId)state.diplomacyAggression[pactKey(playerId,defenderId)]=state.roundCount;if(conquered){target.owner=playerId;target.rebel=false;target.attacks=1;target.attacked=true}state.battle={attackerRoll:a,defenderRoll:d};state.selected=null
+  if(state.strengthsOn){if(conquered)source.attackStrength=Math.min(3,(source.attackStrength||0)+1);else target.defenseStrength=Math.min(3,(target.defenseStrength||0)+1);if(conquered){target.attackStrength=0;target.defenseStrength=0}}
+  state.battle={attackerRoll:attackTotal,defenderRoll:defenseTotal};state.selected=null
   state.message=conquered?`${state.players[playerId].name} conquered ${target.name} from ${source.name}!`:`${target.name} held the line against ${source.name}.`
   if(conquered&&defenderId!==null&&!state.territories.some(t=>t.owner===defenderId)) {
     const defeated=state.players.find(p=>p.id===defenderId)
@@ -668,7 +678,9 @@ $('#toggle-player-labels').onclick=()=>{state.showPlayerLabels=!state.showPlayer
 $('#player-label-size').oninput=e=>{state.playerLabelSize=Number(e.target.value);updatePlayerLabels()}
 $('#toggle-fast-ai').onclick=()=>{state.fastAI=!state.fastAI;const button=$('#toggle-fast-ai');button.classList.toggle('active',state.fastAI);button.setAttribute('aria-pressed',String(state.fastAI));const player=state.players[state.turn];if(state.phase==='war'&&player&&!player.isHuman){clearTimeout(state.aiTimer);runAI()}}
 function toggleHardMode(){const modes=['normal','moderate','hard'];state.attackMode=modes[(modes.indexOf(state.attackMode)+1)%modes.length];updateHardModeButtons();if(state.phase==='war')render()}
+function toggleStrengths(){state.strengthsOn=!state.strengthsOn;updateStrengthButtons();if(state.phase==='war')render()}
 $('#toggle-hard-mode').onclick=toggleHardMode
+$('#toggle-strengths').onclick=toggleStrengths
 $('#toggle-music').onclick=toggleMusic
 $('#music-style').onchange=e=>{state.musicStyle=e.target.value;if(state.phase!=='setup'&&state.musicOn){clearInterval(musicTimer);musicTimer=setInterval(playCampaignBar,3200);playCampaignBar()}}
 function savedGameNames(){const prefix='borderline-dominion-save:';return Object.keys(localStorage).filter(key=>key.startsWith(prefix)).map(key=>key.slice(prefix.length)).sort()}

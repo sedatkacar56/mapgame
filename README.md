@@ -32,6 +32,7 @@ The first load needs an internet connection to download the geographic border da
 - A realm can maintain at most 2 active alliances. The same alliance offer cannot be sent repeatedly in one turn. In Hard mode, after every complete round (all active realms have acted), the single largest realm gets one random territory rising in rebellion; rebels do not attack, and the territory must be conquered to recover it.
 - A realm that attacks another realm during a round cannot request or accept diplomacy with that realm during the same round. It may try again in the following round after proving it did not attack.
 - **Save** or **Load** stores campaigns in this browser. **Cmd+S** (or **Ctrl+S**) opens the save-name prompt.
+- **Strengths** is an optional rule in every attack mode. When enabled, successful attackers gain up to +3 attack strength, defenders that hold gain up to +3 defense strength, and captured territories reset their bonuses.
 - During a human turn, the Diplomacy panel can target any active realm with a 3-turn alliance or 1-turn ceasefire. Active agreements block attacks in both directions; AI realms may also form short agreements. Wars still require a border.
 - AI realms can now send incoming alliance or ceasefire offers. A popup lets the human commander accept or reject each offer; unanswered offers expire automatically.
 - **Music: Off/On** toggles an original campaign-style ambient soundtrack from either the setup panel or map controls. It is off by default and uses no external audio file.
