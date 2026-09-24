@@ -312,8 +312,8 @@ function playCampaignBar() {
   if(!state.musicOn||!musicContext||!musicGain)return
   const now=musicContext.currentTime+.04
   const scene=state.battle?'battle':state.selected?'select':state.phase==='war'&&!state.players[state.turn]?.isHuman?'ai':'turn'
-  const styles={campaign:{roots:[73.42,65.41,58.27,65.41],step:.48,type:'sine'},tension:{roots:[55,58.27,61.74,55],step:.25,type:'sawtooth'},march:{roots:[65.41,73.42,82.41,65.41],step:.36,type:'square'},shadow:{roots:[261.63,293.66,329.63,293.66],step:.82,type:'sine'},calm:{roots:[87.31,98,110,98],step:.7,type:'sine'}}
-  const config=styles[state.musicStyle]||styles.campaign, sceneRoot=state.musicStyle==='shadow'?config.roots[0]:(scene==='battle'?config.roots[0]*.75:scene==='ai'?config.roots[1]*.9:config.roots[0]), root=sceneRoot
+  const styles={campaign:{roots:[73.42,65.41,58.27,65.41],step:.48,type:'sine'},tension:{roots:[220,246.94,261.63,220],step:.25,type:'sawtooth'},march:{roots:[196,220,246.94,196],step:.36,type:'square'},shadow:{roots:[261.63,293.66,329.63,293.66],step:.82,type:'sine'},calm:{roots:[174.61,196,220,196],step:.7,type:'sine'}}
+  const config=styles[state.musicStyle]||styles.campaign, sceneRoot=state.musicStyle==='campaign'?(scene==='battle'?config.roots[0]*.75:scene==='ai'?config.roots[1]*.9:config.roots[0]):config.roots[0], root=sceneRoot
   const tone=(frequency,start,duration,volume,type='triangle')=>{
     const oscillator=musicContext.createOscillator(), gain=musicContext.createGain(), filter=musicContext.createBiquadFilter()
     const voice={oscillator,gain,filter};musicVoices.add(voice)
