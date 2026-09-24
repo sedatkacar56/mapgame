@@ -61,7 +61,7 @@ function orientGeometry(geometry) {
 const state = {
   territories: [], players: [], humanCount: 1, playerCount: 4, phase: 'setup', turn: 0,
   claimWinner: null, selected: null, dice: [], battle: null, message: 'Prepare your campaign.', aiTimer: null, fastAI: false, musicOn: false,
-  turnCount: 0, roundCount: 0, alliances: [], ceasefires: [], diplomacyTarget: null, diplomacyOffers: [], diplomacySent: {}, diplomacyAggression: {}, attackMode: 'normal', attacksThisTurn: {},
+  turnCount: 0, roundCount: 0, alliances: [], ceasefires: [], diplomacyTarget: null, diplomacyOffers: [], diplomacySent: {}, diplomacyAggression: {}, attackMode: 'normal', attacksThisTurn: {}, musicStyle: 'campaign',
   showLabels: true, showPlayerLabels: true,
   playerNames: Array(20).fill(''), playerLabelSize: 9
 }
@@ -96,7 +96,7 @@ document.querySelector('#root').innerHTML = `
           <button id="toggle-player-labels" class="names-button" aria-pressed="false">Player names</button>
           <button id="toggle-fast-ai" class="names-button" aria-pressed="false" title="AI turns play immediately; human turns stay manual">Fast AI</button>
           <button id="toggle-hard-mode" class="names-button" aria-pressed="false" title="Cycle Normal, Moderate, and Hard attack modes">Mode: Normal · 1 attack</button>
-          <button id="toggle-music" class="names-button" aria-pressed="false" title="Toggle the campaign soundtrack">♫ Music: Off</button>
+          <button id="toggle-music" class="names-button" aria-pressed="false" title="Toggle the campaign soundtrack">♫ Music: Off</button><select id="music-style" class="music-style" aria-label="Music style"><option value="campaign">Campaign</option><option value="tension">Battle tension</option><option value="march">War march</option><option value="shadow">Dark frontier</option><option value="calm">Quiet command</option></select>
           <label class="label-size-control">Name size <input id="player-label-size" type="range" min="4" max="14" step="1" value="9"><output id="player-label-size-value">9</output></label>
         </div>
         <div class="compass"><i>N</i><span>✦</span></div><div class="map-caption">EUROPE · NORTH AFRICA · WESTERN ASIA</div>
@@ -309,7 +309,9 @@ function changeZoom(multiplier) {
 function playCampaignBar() {
   if(!state.musicOn||!musicContext||!musicGain)return
   const now=musicContext.currentTime+.04
-  const roots=[73.42,65.41,58.27,65.41], root=roots[musicStep++%roots.length]
+  const scene=state.battle?'battle':state.selected?'select':state.phase==='war'&&!state.players[state.turn]?.isHuman?'ai':'turn'
+  const styles={campaign:{roots:[73.42,65.41,58.27,65.41],step:.48,type:'sine'},tension:{roots:[55,58.27,61.74,55],step:.25,type:'sawtooth'},march:{roots:[65.41,73.42,82.41,65.41],step:.36,type:'square'},shadow:{roots:[46.25,51.91,55,46.25],step:.62,type:'triangle'},calm:{roots:[87.31,98,110,98],step:.7,type:'sine'}}
+  const config=styles[state.musicStyle]||styles.campaign, sceneRoot=scene==='battle'?config.roots[0]*.75:scene==='ai'?config.roots[1]*.9:config.roots[0], root=sceneRoot
   const tone=(frequency,start,duration,volume,type='triangle')=>{
     const oscillator=musicContext.createOscillator(), gain=musicContext.createGain(), filter=musicContext.createBiquadFilter()
     const voice={oscillator,gain,filter};musicVoices.add(voice)
@@ -318,8 +320,9 @@ function playCampaignBar() {
     gain.gain.setValueAtTime(.0001,start);gain.gain.exponentialRampToValueAtTime(volume,start+.16);gain.gain.exponentialRampToValueAtTime(.0001,start+duration)
     oscillator.connect(filter);filter.connect(gain);gain.connect(musicGain);oscillator.start(start);oscillator.stop(start+duration+.05)
   }
-  tone(root,now,3.15,.06,'sine');tone(root*1.5,now,3.05,.035);tone(root*2,now+.02,2.9,.025)
-  ;[2,2.25,2.4,3,2.67,2.25].forEach((ratio,index)=>tone(root*ratio,now+.18+index*.48,.42,.042,index%2?'sine':'triangle'))
+  const step=config.step
+  tone(root,now,3.15,.06,config.type);tone(root*1.5,now,3.05,.035);tone(root*2,now+.02,2.9,.025)
+  ;[2,2.25,2.4,3,2.67,2.25].forEach((ratio,index)=>tone(root*ratio,now+.18+index*step,.42,.042,index%2?'sine':config.type))
 }
 
 async function stopCampaignMusic() {
@@ -337,6 +340,7 @@ function updateMusicButtons() {
   if(button){button.textContent=label;button.classList.toggle('active',state.musicOn);button.setAttribute('aria-pressed',String(state.musicOn))}
   const setupButton=$('#setup-music')
   if(setupButton){setupButton.textContent=label;setupButton.classList.toggle('active',state.musicOn);setupButton.setAttribute('aria-pressed',String(state.musicOn))}
+  const style=$('#music-style');if(style)style.value=state.musicStyle
 }
 
 function updateHardModeButtons() {
@@ -506,10 +510,10 @@ function renderActions() {
 
 function renderModal() {
   const modal=$('#modal')
-  if(state.phase==='setup') modal.innerHTML=`<div class="modal-backdrop"><div class="setup-card"><span class="eyebrow">NEW CAMPAIGN</span><h1>Claim the old world.</h1><p>Each player starts with one connected realm. Hold your borders and conquer the continent.</p><div class="setup-grid"><label>Human players<select id="humans"><option value="1">1 player</option><option value="2">2 players</option><option value="3">3 players</option></select></label><label>Total players<select id="total">${Array.from({length:18},(_,i)=>i+3).map(count=>`<option value="${count}">${count} players</option>`).join('')}</select></label></div><div class="name-editor"><span>REALM NAMES · OPTIONAL</span>${Array.from({length:state.playerCount},(_,i)=>`<label><i style="background:${COLORS[i]}"></i><small>${i<state.humanCount?'Human':'AI'}</small><input id="player-name-${i}" value="${escapeHtml(state.playerNames[i])}" placeholder="Automatic by location" maxlength="24" /></label>`).join('')}</div><button class="music-start ${state.musicOn?'active':''}" id="setup-music" aria-pressed="${state.musicOn}">♫ Music: ${state.musicOn?'On':'Off'}</button><button class="music-start ${state.attackMode!=='normal'?'active':''}" id="setup-hard-mode" aria-pressed="${state.attackMode!=='normal'}">Mode: ${state.attackMode==='moderate'?'Moderate · 3 total':state.attackMode==='hard'?'Hard · all territories':'Normal · 1 per territory'}</button><button class="primary large" id="begin">Begin campaign <span>→</span></button><small>3–20 players · Empty names are generated by location</small></div></div>`
+  if(state.phase==='setup') modal.innerHTML=`<div class="modal-backdrop"><div class="setup-card"><span class="eyebrow">NEW CAMPAIGN</span><h1>Claim the old world.</h1><p>Each player starts with one connected realm. Hold your borders and conquer the continent.</p><div class="setup-grid"><label>Human players<select id="humans"><option value="1">1 player</option><option value="2">2 players</option><option value="3">3 players</option></select></label><label>Total players<select id="total">${Array.from({length:18},(_,i)=>i+3).map(count=>`<option value="${count}">${count} players</option>`).join('')}</select></label></div><div class="name-editor"><span>REALM NAMES · OPTIONAL</span>${Array.from({length:state.playerCount},(_,i)=>`<label><i style="background:${COLORS[i]}"></i><small>${i<state.humanCount?'Human':'AI'}</small><input id="player-name-${i}" value="${escapeHtml(state.playerNames[i])}" placeholder="Automatic by location" maxlength="24" /></label>`).join('')}</div><button class="music-start ${state.musicOn?'active':''}" id="setup-music" aria-pressed="${state.musicOn}">♫ Music: ${state.musicOn?'On':'Off'}</button><label class="music-choice">Music style<select id="setup-music-style"><option value="campaign">Campaign</option><option value="tension">Battle tension</option><option value="march">War march</option><option value="shadow">Dark frontier</option><option value="calm">Quiet command</option></select></label><button class="music-start ${state.attackMode!=='normal'?'active':''}" id="setup-hard-mode" aria-pressed="${state.attackMode!=='normal'}">Mode: ${state.attackMode==='moderate'?'Moderate · 3 total':state.attackMode==='hard'?'Hard · all territories':'Normal · 1 per territory'}</button><button class="primary large" id="begin">Begin campaign <span>→</span></button><small>3–20 players · Empty names are generated by location</small></div></div>`
   else if(state.phase==='gameover') modal.innerHTML=`<div class="modal-backdrop"><div class="setup-card victory"><span class="eyebrow">TOTAL VICTORY</span><h1>${state.message}</h1><button class="primary large" id="again">Play again</button></div></div>`
   else { modal.innerHTML=''; return }
-  if(state.phase==='setup') { $('#humans').value=state.humanCount; $('#total').value=state.playerCount; $('#humans').onchange=e=>{state.humanCount=+e.target.value;renderModal()}; $('#total').onchange=e=>{state.playerCount=+e.target.value;renderModal()}; Array.from({length:state.playerCount},(_,i)=>{$(`#player-name-${i}`).oninput=e=>state.playerNames[i]=e.target.value}); $('#setup-music').onclick=toggleMusic; $('#setup-hard-mode').onclick=toggleHardMode; $('#begin').onclick=startGame }
+  if(state.phase==='setup') { $('#humans').value=state.humanCount; $('#total').value=state.playerCount; $('#setup-music-style').value=state.musicStyle; $('#humans').onchange=e=>{state.humanCount=+e.target.value;renderModal()}; $('#total').onchange=e=>{state.playerCount=+e.target.value;renderModal()}; $('#setup-music-style').onchange=e=>{state.musicStyle=e.target.value}; Array.from({length:state.playerCount},(_,i)=>{$(`#player-name-${i}`).oninput=e=>state.playerNames[i]=e.target.value}); $('#setup-music').onclick=toggleMusic; $('#setup-hard-mode').onclick=toggleHardMode; $('#begin').onclick=startGame }
   else $('#again').onclick=()=>{state.phase='setup';render()}
 }
 
@@ -666,6 +670,7 @@ $('#toggle-fast-ai').onclick=()=>{state.fastAI=!state.fastAI;const button=$('#to
 function toggleHardMode(){const modes=['normal','moderate','hard'];state.attackMode=modes[(modes.indexOf(state.attackMode)+1)%modes.length];updateHardModeButtons();if(state.phase==='war')render()}
 $('#toggle-hard-mode').onclick=toggleHardMode
 $('#toggle-music').onclick=toggleMusic
+$('#music-style').onchange=e=>{state.musicStyle=e.target.value;if(state.phase!=='setup'&&state.musicOn){clearInterval(musicTimer);musicTimer=setInterval(playCampaignBar,3200);playCampaignBar()}}
 function saveGame(){
   if(state.phase==='setup'){state.message='Start a campaign before saving.';render();return}
   const name=window.prompt('Save campaign as:','My campaign')?.trim()
