@@ -108,7 +108,7 @@ document.querySelector('#root').innerHTML = `
         <div class="rules"><span>FIELD RULES</span><p id="rules-text">Each territory can attack once per turn. Only shared borders and marked sea routes are valid. Ties favor the defender. Alliances last 3 turns; ceasefires last 1.</p></div>
       </aside>
     </section>
-    <div id="modal"></div><div id="offer-modal"></div>
+    <div id="modal"></div><div id="offer-modal"></div><div id="save-dialog"></div>
   </main>`
 
 async function loadMap() {
@@ -671,41 +671,26 @@ function toggleHardMode(){const modes=['normal','moderate','hard'];state.attackM
 $('#toggle-hard-mode').onclick=toggleHardMode
 $('#toggle-music').onclick=toggleMusic
 $('#music-style').onchange=e=>{state.musicStyle=e.target.value;if(state.phase!=='setup'&&state.musicOn){clearInterval(musicTimer);musicTimer=setInterval(playCampaignBar,3200);playCampaignBar()}}
-function saveGame(){
-  if(state.phase==='setup'){state.message='Start a campaign before saving.';render();return}
-  const name=window.prompt('Save campaign as:','My campaign')?.trim()
-  if(!name)return
-  try{
-    const snapshot={...state,aiTimer:null,saveName:name,savedAt:new Date().toISOString()}
-    localStorage.setItem(`borderline-dominion-save:${name}`,JSON.stringify(snapshot))
-    state.message=`Campaign saved as “${name}”.`;render()
-  }catch(error){state.message='Could not save this campaign in browser storage.';render()}
+function savedGameNames(){const prefix='borderline-dominion-save:';return Object.keys(localStorage).filter(key=>key.startsWith(prefix)).map(key=>key.slice(prefix.length)).sort()}
+function closeSaveDialog(){$('#save-dialog').innerHTML=''}
+function saveDialog(action){
+  const names=savedGameNames(),box=$('#save-dialog')
+  if((action!=='save')&&!names.length){state.message='No saved campaigns found in this browser.';render();return}
+  const options=names.map(name=>`<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('')
+  box.innerHTML=`<div class="save-backdrop"><div class="save-card"><span class="eyebrow">${action==='save'?'SAVE CAMPAIGN':action==='load'?'LOAD CAMPAIGN':'DELETE CAMPAIGN'}</span>${action==='save'?`<label>Save name<select id="save-choice"><option value="__new">＋ New save name…</option>${options}</select></label><input id="save-name-input" placeholder="Campaign name" maxlength="40" />`:`<label>Choose campaign<select id="save-choice">${options}</select></label>`}<div class="save-actions"><button class="secondary" id="save-cancel">Cancel</button><button class="primary" id="save-confirm">${action==='save'?'Save':action==='load'?'Load':'Delete'}</button></div></div></div>`
+  const choice=$('#save-choice'),input=$('#save-name-input');if(input)choice.onchange=()=>{input.disabled=choice.value!=='__new';if(!input.disabled)input.focus()};$('#save-cancel').onclick=closeSaveDialog;$('#save-confirm').onclick=()=>{
+    let name=action==='save'?(choice.value==='__new'?input.value.trim():choice.value):choice.value
+    if(!name){state.message='Choose or enter a save name.';closeSaveDialog();render();return}
+    const key=`borderline-dominion-save:${name}`
+    if(action==='save'){if(state.phase==='setup'){state.message='Start a campaign before saving.'}else{try{localStorage.setItem(key,JSON.stringify({...state,aiTimer:null,saveName:name,savedAt:new Date().toISOString()}));state.message=`Campaign saved as “${name}”.`}catch(error){state.message='Could not save this campaign.'}}}
+    else if(action==='load'){try{clearTimeout(state.aiTimer);Object.assign(state,JSON.parse(localStorage.getItem(key)),{aiTimer:null});if(state.phase==='war'&&!state.players[state.turn]?.isHuman)runAI()}catch(error){state.message='That saved campaign could not be loaded.'}}
+    else if(window.confirm(`Delete saved campaign “${name}”?`)){localStorage.removeItem(key);state.message=`Deleted saved campaign “${name}”.`}
+    closeSaveDialog();render()
+  }
 }
-function loadGame(){
-  const prefix='borderline-dominion-save:'
-  const names=Object.keys(localStorage).filter(key=>key.startsWith(prefix)).map(key=>key.slice(prefix.length))
-  if(!names.length){state.message='No saved campaigns found in this browser.';render();return}
-  const name=window.prompt(`Available saves:\n${names.join('\n')}\n\nEnter a save name to load:`)?.trim()
-  if(!name)return
-  const raw=localStorage.getItem(`borderline-dominion-save:${name}`)
-  if(!raw){state.message=`No saved campaign named “${name}”.`;render();return}
-  try{
-    clearTimeout(state.aiTimer)
-    Object.assign(state,JSON.parse(raw),{aiTimer:null})
-    render()
-    if(state.phase==='war'&&!state.players[state.turn]?.isHuman)runAI()
-  }catch(error){state.message='That saved campaign could not be loaded.';render()}
-}
-function deleteGame(){
-  const prefix='borderline-dominion-save:'
-  const names=Object.keys(localStorage).filter(key=>key.startsWith(prefix)).map(key=>key.slice(prefix.length))
-  if(!names.length){state.message='No saved campaigns found in this browser.';render();return}
-  const name=window.prompt(`Saved campaigns:\n${names.join('\n')}\n\nEnter the save name to delete:`)?.trim()
-  if(!name)return
-  const key=`${prefix}${name}`
-  if(!localStorage.getItem(key)){state.message=`No saved campaign named “${name}”.`;render();return}
-  if(window.confirm(`Delete saved campaign “${name}”?`)){localStorage.removeItem(key);state.message=`Deleted saved campaign “${name}”.`;render()}
-}
+function saveGame(){saveDialog('save')}
+function loadGame(){saveDialog('load')}
+function deleteGame(){saveDialog('delete')}
 $('#save-game').onclick=saveGame
 $('#load-game').onclick=loadGame
 $('#delete-game').onclick=deleteGame
