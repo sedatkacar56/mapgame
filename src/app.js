@@ -474,6 +474,7 @@ function expireDiplomacy(){
   state.alliances=state.alliances.filter(pact=>pact.until>state.roundCount);state.ceasefires=state.ceasefires.filter(pact=>pact.until>state.roundCount);state.diplomacyOffers=state.diplomacyOffers.filter(offer=>offer.until>state.roundCount&&state.players.some(p=>p.id===offer.from&&!p.eliminated)&&state.players.some(p=>p.id===offer.to&&!p.eliminated))
 }
 function allianceCount(playerId){return state.alliances.filter(pact=>pact.key.split(':').map(Number).includes(playerId)&&pact.until>state.roundCount).length}
+function pactCount(playerId){return state.alliances.filter(pact=>pact.key.split(':').map(Number).includes(playerId)&&pact.until>state.roundCount).length+state.ceasefires.filter(pact=>pact.key.split(':').map(Number).includes(playerId)&&pact.until>state.roundCount).length}
 function attackedThisRound(first,second){return Boolean(state.diplomacyAggression[pactKey(first,second)]===state.roundCount)}
 function agreementStatus(playerId){
   const current=state.players[state.turn]?.id
@@ -491,7 +492,7 @@ function diplomacyTargets(playerId){
 function formPact(type,first,second){
   if(type==='alliance'&&!state.alliancesOn)return false
   if(attackedThisRound(first,second))return false
-  if(type==='alliance'&&(allianceCount(first)>=2||allianceCount(second)>=2))return false
+  if(pactCount(first)>=2||pactCount(second)>=2)return false
   const list=type==='alliance'?state.alliances:state.ceasefires
   const other=type==='alliance'?state.ceasefires:state.alliances
   const key=pactKey(first,second)
@@ -512,7 +513,7 @@ function requestPact(type,targetId){
   const sentKey=`${state.roundCount}:${current.id}:${target.id}:${type}`
   if(state.diplomacySent[sentKey]){state.message=`You already sent that offer to ${target.name} this round.`;render();return}
   state.diplomacySent[sentKey]=true
-  if(type==='alliance'&&allianceCount(current.id)>=2){state.message='Your realm already has the maximum of 2 alliances.';render();return}
+  if(pactCount(current.id)>=2){state.message='Your realm already has the maximum of 2 diplomatic agreements.';render();return}
   const chance=type==='alliance'?.72:.84
   if(target.isHuman||Math.random()<chance){if(formPact(type,current.id,target.id))state.message=`${target.name} accepted your ${type}.`;else state.message=`${target.name} cannot accept more alliances.`}
   else state.message=`${target.name} rejected your ${type}.`
@@ -522,7 +523,7 @@ function acceptDiplomacyOffer(index){
   const offer=state.diplomacyOffers[index], current=state.players[state.turn]
   if(!offer||!current||offer.to!==current.id)return
   if(attackedThisRound(offer.from,offer.to)){state.diplomacyOffers.splice(index,1);state.message='This offer is rejected because an attack occurred between your realms this round.';render();return}
-  if(offer.type==='alliance'&&(allianceCount(current.id)>=2||allianceCount(offer.from)>=2)){state.diplomacyOffers.splice(index,1);state.message='This alliance cannot be formed because one realm already has 2 alliances.';render();return}
+  if(pactCount(current.id)>=2||pactCount(offer.from)>=2){state.diplomacyOffers.splice(index,1);state.message='This pact cannot be formed because one realm already has 2 diplomatic agreements.';render();return}
   formPact(offer.type,offer.from,offer.to);state.diplomacyOffers.splice(index,1);state.message=`You accepted ${state.players[offer.from].name}'s ${offer.type}.`;render()
 }
 function rejectDiplomacyOffer(index){
@@ -540,7 +541,7 @@ function renderDiplomacyOffers(){
 }
 function aiDiplomacy(player){
   if(Math.random()>.2)return
-  const targets=diplomacyTargets(player.id).filter(target=>!isDiplomacyProtected(player.id,target.id)&&!attackedThisRound(player.id,target.id)&&(!state.diplomacySent[`${state.roundCount}:${player.id}:${target.id}:alliance`]||!state.diplomacySent[`${state.roundCount}:${player.id}:${target.id}:ceasefire`]))
+  const targets=diplomacyTargets(player.id).filter(target=>pactCount(player.id)<2&&pactCount(target.id)<2&&!isDiplomacyProtected(player.id,target.id)&&!attackedThisRound(player.id,target.id)&&(!state.diplomacySent[`${state.roundCount}:${player.id}:${target.id}:alliance`]||!state.diplomacySent[`${state.roundCount}:${player.id}:${target.id}:ceasefire`]))
   if(!targets.length)return
   const target=targets.sort((a,b)=>state.territories.filter(t=>t.owner===b.id).length-state.territories.filter(t=>t.owner===a.id).length)[0]
   const type=state.alliancesOn&&Math.random()<.7?'alliance':'ceasefire'

@@ -30,6 +30,7 @@ The first load needs an internet connection to download the geographic border da
 - `Fast AI` removes the visible delay from AI turns without automating or skipping any human turn.
 - Attack modes are optional: **Normal** allows 1 attack per territory, **Moderate** allows up to 3 total attacks for the realm, and **Hard** lets the realm use every available territory once. Every attacking territory fades after attacking, only neighboring territories can be targeted, and a newly captured territory waits until the next turn before attacking.
 - A realm can maintain at most 2 active alliances. The same alliance offer cannot be sent repeatedly in one turn. In Hard mode, after every complete round (all active realms have acted), the single largest realm gets one random territory rising in rebellion; rebels do not attack, and the territory must be conquered to recover it.
+- Each realm may have at most 2 total diplomatic agreements in any combination: two alliances, one alliance plus one ceasefire, or two ceasefires.
 - A realm that attacks another realm during a round cannot request or accept diplomacy with that realm during the same round. It may try again in the following round after proving it did not attack.
 - **Save** or **Load** stores campaigns in this browser. **Cmd+S** (or **Ctrl+S**) opens the save-name prompt.
 - **Strengths** is an optional rule in every attack mode. When enabled, successful attackers gain up to +3 attack strength, defenders that hold gain up to +3 defense strength, and captured territories reset their bonuses.
