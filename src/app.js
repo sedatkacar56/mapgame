@@ -62,6 +62,7 @@ const state = {
   territories: [], players: [], humanCount: 1, playerCount: 4, phase: 'setup', turn: 0,
   claimWinner: null, selected: null, dice: [], battle: null, message: 'Prepare your campaign.', aiTimer: null, fastAI: false, musicOn: false,
   turnCount: 0, roundCount: 0, alliances: [], ceasefires: [], diplomacyTarget: null, diplomacyOffers: [], diplomacySent: {}, diplomacyAggression: {}, attackMode: 'normal', attacksThisTurn: {}, musicStyle: 'campaign', strengthsOn: false,
+  showPacts: false,
   showLabels: true, showPlayerLabels: true,
   playerNames: Array(20).fill(''), playerLabelSize: 9
 }
@@ -97,8 +98,9 @@ document.querySelector('#root').innerHTML = `
           <button id="toggle-fast-ai" class="names-button" aria-pressed="false" title="AI turns play immediately; human turns stay manual">Fast AI</button>
           <button id="toggle-hard-mode" class="names-button" aria-pressed="false" title="Cycle Normal, Moderate, and Hard attack modes">Mode: Normal · 1 attack</button><button id="toggle-strengths" class="names-button" aria-pressed="false" title="Toggle attack and defense strength bonuses">Strengths: Off</button>
           <button id="toggle-music" class="names-button" aria-pressed="false" title="Toggle the campaign soundtrack">♫ Music: Off</button><select id="music-style" class="music-style" aria-label="Music style"><option value="campaign">Campaign</option><option value="tension">Battle tension</option><option value="march">War march</option><option value="shadow">Dark frontier</option><option value="calm">Quiet command</option></select>
+          <button id="toggle-pacts" class="names-button" aria-pressed="false">Pacts</button>
           <label class="label-size-control">Name size <input id="player-label-size" type="range" min="4" max="14" step="1" value="9"><output id="player-label-size-value">9</output></label>
-        </div>
+        </div><div id="diplomacy-panel"></div>
         <div class="compass"><i>N</i><span>✦</span></div><div class="map-caption">EUROPE · NORTH AFRICA · WESTERN ASIA</div>
       </div>
       <aside>
@@ -415,6 +417,18 @@ function render() {
     el.querySelector('title').textContent=`${t.name} — ${t.rebel?'Rebels':owner?.name||'Unclaimed'}${pactLabel}${strengthLabel}`
   })
   renderActions(); renderModal(); renderDiplomacyOffers(); updatePlayerLabels()
+  renderPacts()
+}
+
+function renderPacts(){
+  const panel=$('#diplomacy-panel');if(!panel)return
+  const button=$('#toggle-pacts');if(button){button.classList.toggle('active',state.showPacts);button.setAttribute('aria-pressed',String(state.showPacts))}
+  const current=state.players[state.turn],pacts=current?[
+    ...state.alliances.filter(pact=>pact.until>state.roundCount).map(pact=>({...pact,type:'Alliance'})),
+    ...state.ceasefires.filter(pact=>pact.until>state.roundCount).map(pact=>({...pact,type:'Ceasefire'}))
+  ].map(pact=>{const ids=pact.key.split(':').map(Number),otherId=ids.find(id=>id!==current.id),other=state.players.find(player=>player.id===otherId);return {...pact,other}}).filter(pact=>pact.other&&!pact.other.eliminated):[]
+  panel.classList.toggle('open',state.showPacts)
+  panel.innerHTML=state.showPacts?`<div class="pacts-card"><b>ACTIVE PACTS</b>${pacts.length?pacts.map(pact=>`<div class="pact-line"><span>${pact.type==='Alliance'?'🤝':'🕊'} ${escapeHtml(pact.other.name)}</span><small>${Math.max(0,pact.until-state.roundCount-1)} rounds left</small></div>`).join(''):'<small>No active alliances or ceasefires.</small>'}</div>`:''
 }
 
 function pactKey(first,second){return [first,second].sort((a,b)=>a-b).join(':')}
@@ -681,6 +695,7 @@ function toggleHardMode(){const modes=['normal','moderate','hard'];state.attackM
 function toggleStrengths(){state.strengthsOn=!state.strengthsOn;updateStrengthButtons();if(state.phase==='war')render()}
 $('#toggle-hard-mode').onclick=toggleHardMode
 $('#toggle-strengths').onclick=toggleStrengths
+$('#toggle-pacts').onclick=()=>{state.showPacts=!state.showPacts;const button=$('#toggle-pacts');button.classList.toggle('active',state.showPacts);button.setAttribute('aria-pressed',String(state.showPacts));renderPacts()}
 $('#toggle-music').onclick=toggleMusic
 $('#music-style').onchange=e=>{state.musicStyle=e.target.value;if(state.phase!=='setup'&&state.musicOn){clearInterval(musicTimer);musicTimer=setInterval(playCampaignBar,3200);playCampaignBar()}}
 function savedGameNames(){const prefix='borderline-dominion-save:';return Object.keys(localStorage).filter(key=>key.startsWith(prefix)).map(key=>key.slice(prefix.length)).sort()}
