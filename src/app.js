@@ -62,7 +62,7 @@ const state = {
   territories: [], players: [], humanCount: 1, playerCount: 4, phase: 'setup', turn: 0,
   claimWinner: null, selected: null, dice: [], battle: null, message: 'Prepare your campaign.', aiTimer: null, fastAI: false, musicOn: false,
   turnCount: 0, roundCount: 0, alliances: [], ceasefires: [], pendingRenewals: [], diplomacyTarget: null, diplomacyOffers: [], diplomacySent: {}, diplomacyAggression: {}, attackMode: 'normal', attacksThisTurn: {}, musicStyle: 'campaign', strengthsOn: false, captureAttackOn: false,
-  showPacts: false, controlsHidden: false, rebelsOn: false, alliancesOn: true, autoRejectOffers: false, strengthView: 'off', attackAnimation: null,
+  showPacts: false, controlsHidden: false, rebelsOn: false, alliancesOn: true, autoRejectOffers: false, strengthView: 'off', paused: false, attackAnimation: null,
   showLabels: true, showPlayerLabels: true,
   playerNames: Array(20).fill(''), playerLabelSize: 9
 }
@@ -95,7 +95,7 @@ document.querySelector('#root').innerHTML = `
           <button id="zoom-reset" title="Reset map" aria-label="Reset map">⌂</button>
           <button id="toggle-labels" class="names-button" aria-pressed="false">Place names</button>
           <button id="toggle-player-labels" class="names-button" aria-pressed="false">Player names</button>
-          <button id="toggle-fast-ai" class="names-button" aria-pressed="false" title="AI turns play immediately; human turns stay manual">Fast AI</button>
+          <button id="toggle-fast-ai" class="names-button" aria-pressed="false" title="AI turns play immediately; human turns stay manual">Fast AI</button><button id="toggle-pause-ai" class="names-button" aria-pressed="false" title="Pause automatic AI turns">Pause AI</button>
           <button id="toggle-hard-mode" class="names-button" aria-pressed="false" title="Cycle Normal, Moderate, and Hard attack modes">Mode: Normal · 1 attack</button><button id="toggle-strengths" class="names-button" aria-pressed="false" title="Toggle attack and defense strength bonuses">Strengths: Off</button><select id="strength-view" class="strength-view" aria-label="Strength map view" disabled><option value="off">Strength view: Off</option><option value="attack">Attack heatmap</option><option value="defense">Defense heatmap</option><option value="combined">Combined strength</option></select><button id="toggle-capture-attack" class="names-button" aria-pressed="false" title="Allow a newly captured territory to attack immediately">New capture attack: Off</button><button id="toggle-rebels" class="names-button" aria-pressed="false" title="Toggle Hard-mode rebellions">Rebels: Off</button>
           <button id="toggle-music" class="names-button" aria-pressed="false" title="Toggle the campaign soundtrack">♫ Music: Off</button><select id="music-style" class="music-style" aria-label="Music style"><option value="campaign">Campaign</option><option value="tension">Battle tension</option><option value="march">War march</option><option value="shadow">Dark frontier</option><option value="calm">Quiet command</option></select>
           <button id="toggle-pacts" class="names-button" aria-pressed="false">Pacts</button><button id="toggle-alliances" class="names-button" aria-pressed="true">Alliances: On</button><button id="toggle-auto-reject" class="names-button" aria-pressed="false">Auto-reject offers: Off</button><button id="toggle-controls" class="names-button" aria-pressed="false">Hide controls</button>
@@ -382,6 +382,7 @@ function updateAllianceButtons(){
   const setup=$('#setup-alliances');if(setup){setup.textContent=label;setup.classList.toggle('active',state.alliancesOn);setup.setAttribute('aria-pressed',String(state.alliancesOn))}
 }
 function updateAutoRejectButton(){const button=$('#toggle-auto-reject');if(button){button.textContent=`Auto-reject offers: ${state.autoRejectOffers?'On':'Off'}`;button.classList.toggle('active',state.autoRejectOffers);button.setAttribute('aria-pressed',String(state.autoRejectOffers))}}
+function updatePauseButton(){const button=$('#toggle-pause-ai');if(button){button.textContent=state.paused?'Resume AI':'Pause AI';button.classList.toggle('active',state.paused);button.setAttribute('aria-pressed',String(state.paused))}}
 
 function attackLimit(){return state.attackMode==='moderate'?3:Infinity}
 function canAttack(territory){return territory.attacks<1&&(state.attackMode!=='moderate'||(state.attacksThisTurn[territory.owner]||0)<attackLimit())}
@@ -421,6 +422,7 @@ function render() {
   updateRebelButtons()
   updateAllianceButtons()
   updateAutoRejectButton()
+  updatePauseButton()
   updateMusicButtons()
   const playerOrder=[...state.players].sort((a,b)=>Number(a.eliminated)-Number(b.eliminated)||state.territories.filter(t=>t.owner===b.id).length-state.territories.filter(t=>t.owner===a.id).length||a.id-b.id)
   $('#players').innerHTML = playerOrder.length ? playerOrder.map(p=>`
@@ -591,7 +593,7 @@ function startGame() {
   state.players=Array.from({length:state.playerCount},(_,i)=>({id:i,name:`Player ${i+1}`,color:COLORS[i],isHuman:i<state.humanCount,eliminated:false}))
   assignConnectedRealms()
   assignRealmNames()
-  Object.assign(state,{phase:'war',turn:0,turnCount:0,roundCount:0,alliances:[],ceasefires:[],pendingRenewals:[],diplomacyTarget:null,diplomacyOffers:[],diplomacySent:{},diplomacyAggression:{},attacksThisTurn:{},selected:null,claimWinner:null,dice:[],battle:null,message:turnMessage(state.players[0])}); render()
+  Object.assign(state,{phase:'war',turn:0,turnCount:0,roundCount:0,alliances:[],ceasefires:[],pendingRenewals:[],diplomacyTarget:null,diplomacyOffers:[],diplomacySent:{},diplomacyAggression:{},attacksThisTurn:{},paused:false,selected:null,claimWinner:null,dice:[],battle:null,message:turnMessage(state.players[0])}); render()
 }
 
 function assignRealmNames() {
@@ -729,7 +731,7 @@ function endTurn(){
   state.turn=active[(currentIndex+1)%active.length]?.id??state.turn
   state.selected=null;state.battle=null;state.message=turnMessage(state.players[state.turn])+(roundComplete?spawnRebellion():'');render();runAI()
 }
-function runAI(){const p=state.players[state.turn];if(state.phase!=='war'||!p||p.isHuman)return;if(p.eliminated){endTurn();return}const thinkDelay=state.fastAI?35:800,finishDelay=state.fastAI?45:1000,noAttackDelay=state.fastAI?45:700;state.aiTimer=setTimeout(()=>{expireDiplomacy();aiDiplomacy(p);const owned=state.territories.filter(t=>t.owner===p.id&&canAttack(t)),attacks=owned.flatMap(s=>s.neighbors.map(id=>state.territories.find(t=>t.id===id)).filter(t=>t&&t.owner!==p.id&&!isDiplomacyProtected(p.id,t.owner)).map(t=>({s,t})));if(attacks.length){const x=attacks[Math.floor(Math.random()*attacks.length)];resolveBattle(x.s.id,x.t.id,p.id);if(state.phase==='war')state.aiTimer=setTimeout(state.attackMode==='normal'?endTurn:runAI,finishDelay)}else{state.message=`${p.name} has no available border attacks.`;render();state.aiTimer=setTimeout(endTurn,noAttackDelay)}},thinkDelay)}
+function runAI(){const p=state.players[state.turn];if(state.phase!=='war'||!p||p.isHuman||state.paused)return;if(p.eliminated){endTurn();return}const thinkDelay=state.fastAI?35:800,finishDelay=state.fastAI?45:1000,noAttackDelay=state.fastAI?45:700;state.aiTimer=setTimeout(()=>{if(state.paused)return;expireDiplomacy();aiDiplomacy(p);const owned=state.territories.filter(t=>t.owner===p.id&&canAttack(t)),attacks=owned.flatMap(s=>s.neighbors.map(id=>state.territories.find(t=>t.id===id)).filter(t=>t&&t.owner!==p.id&&!isDiplomacyProtected(p.id,t.owner)).map(t=>({s,t})));if(attacks.length){const x=attacks[Math.floor(Math.random()*attacks.length)];resolveBattle(x.s.id,x.t.id,p.id);if(state.phase==='war')state.aiTimer=setTimeout(state.attackMode==='normal'?endTurn:runAI,finishDelay)}else{state.message=`${p.name} has no available border attacks.`;render();state.aiTimer=setTimeout(endTurn,noAttackDelay)}},thinkDelay)}
 
 $('#new-game').onclick=()=>{clearTimeout(state.aiTimer);state.phase='setup';render()}
 $('#zoom-in').onclick=()=>changeZoom(1.5)
@@ -751,6 +753,7 @@ $('#toggle-capture-attack').onclick=toggleCaptureAttack
 $('#toggle-rebels').onclick=toggleRebels
 $('#toggle-alliances').onclick=toggleAlliances
 $('#toggle-auto-reject').onclick=()=>{state.autoRejectOffers=!state.autoRejectOffers;if(state.autoRejectOffers)state.diplomacyOffers=[];updateAutoRejectButton();render()}
+$('#toggle-pause-ai').onclick=()=>{state.paused=!state.paused;if(state.paused)clearTimeout(state.aiTimer);updatePauseButton();if(!state.paused)runAI()}
 $('#toggle-pacts').onclick=()=>{state.showPacts=!state.showPacts;const button=$('#toggle-pacts');button.classList.toggle('active',state.showPacts);button.setAttribute('aria-pressed',String(state.showPacts));renderPacts()}
 $('#toggle-controls').onclick=()=>{state.controlsHidden=true;render()}
 $('#show-controls').onclick=()=>{state.controlsHidden=false;render()}
