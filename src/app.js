@@ -325,6 +325,10 @@ function playCampaignBar() {
   const step=config.step
   tone(root,now,3.15,.06,config.type);tone(root*1.5,now,3.05,.035);tone(root*2,now+.02,2.9,.025)
   ;[2,2.25,2.4,3,2.67,2.25].forEach((ratio,index)=>tone(root*ratio,now+.18+index*step,.42,.042,index%2?'sine':config.type))
+  if(state.musicStyle==='march'){
+    ;[0,.36,.72,1.08,1.44,1.8,2.16,2.52].forEach((offset,index)=>tone(index%3===0?196:247,now+offset,.16,.075,'triangle'))
+    ;[0,.72,1.44,2.16].forEach(offset=>tone(330,now+offset,.1,.055,'square'))
+  }
 }
 
 async function stopCampaignMusic() {
