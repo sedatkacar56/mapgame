@@ -61,7 +61,7 @@ function orientGeometry(geometry) {
 const state = {
   territories: [], players: [], humanCount: 1, playerCount: 4, phase: 'setup', turn: 0,
   claimWinner: null, selected: null, dice: [], battle: null, message: 'Prepare your campaign.', aiTimer: null, fastAI: false, musicOn: false,
-  turnCount: 0, roundCount: 0, alliances: [], ceasefires: [], diplomacyTarget: null, diplomacyOffers: [], diplomacySent: {}, diplomacyAggression: {}, attackMode: 'normal', attacksThisTurn: {}, musicStyle: 'campaign', strengthsOn: false,
+  turnCount: 0, roundCount: 0, alliances: [], ceasefires: [], pendingRenewals: [], diplomacyTarget: null, diplomacyOffers: [], diplomacySent: {}, diplomacyAggression: {}, attackMode: 'normal', attacksThisTurn: {}, musicStyle: 'campaign', strengthsOn: false,
   showPacts: false,
   showLabels: true, showPlayerLabels: true,
   playerNames: Array(20).fill(''), playerLabelSize: 9
@@ -427,8 +427,10 @@ function renderPacts(){
     ...state.alliances.filter(pact=>pact.until>state.roundCount).map(pact=>({...pact,type:'Alliance'})),
     ...state.ceasefires.filter(pact=>pact.until>state.roundCount).map(pact=>({...pact,type:'Ceasefire'}))
   ].map(pact=>{const ids=pact.key.split(':').map(Number),humanId=ids.find(id=>humanIds.has(id)),otherId=ids.find(id=>id!==humanId),human=state.players.find(player=>player.id===humanId),other=state.players.find(player=>player.id===otherId);return {...pact,human,other}}).filter(pact=>pact.human&&pact.other&&!pact.other.eliminated)
+  const renewals=state.pendingRenewals.map(pact=>{const ids=pact.key.split(':').map(Number),humanId=ids.find(id=>humanIds.has(id)),otherId=ids.find(id=>id!==humanId),human=state.players.find(player=>player.id===humanId),other=state.players.find(player=>player.id===otherId);return {...pact,displayType:pact.type==='alliance'?'Alliance':'Ceasefire',human,other}}).filter(pact=>pact.human&&pact.other&&!pact.other.eliminated)
   panel.classList.toggle('open',state.showPacts)
-  panel.innerHTML=state.showPacts?`<div class="pacts-card"><b>ACTIVE PACTS</b>${pacts.length?pacts.map(pact=>`<div class="pact-line"><span>${pact.type==='Alliance'?'🤝':'🕊'} ${escapeHtml(pact.other.name)}</span><small>${Math.max(0,pact.until-state.roundCount-1)} rounds left</small></div>`).join(''):'<small>No active alliances or ceasefires.</small>'}</div>`:''
+  panel.innerHTML=state.showPacts?`<div class="pacts-card"><b>ACTIVE PACTS</b>${pacts.length?pacts.map(pact=>`<div class="pact-line"><span>${pact.type==='Alliance'?'🤝':'🕊'} ${escapeHtml(pact.other.name)}</span><small>${Math.max(0,pact.until-state.roundCount-1)} rounds left</small></div>`).join(''):'<small>No active alliances or ceasefires.</small>'}${renewals.length?`<b class="renew-title">RENEWAL REQUESTS</b>${renewals.map(pact=>`<div class="pact-line"><span>${pact.displayType==='Alliance'?'🤝':'🕊'} ${escapeHtml(pact.other.name)}</span><button class="secondary renew-pact" data-renew-key="${pact.key}" data-renew-type="${pact.displayType}">Renew</button></div>`).join('')}`:''}</div>`:''
+  panel.querySelectorAll('.renew-pact').forEach(button=>button.onclick=()=>renewPact(button.dataset.renewType,button.dataset.renewKey))
 }
 
 function pactKey(first,second){return [first,second].sort((a,b)=>a-b).join(':')}
@@ -436,7 +438,11 @@ function pactActive(list,first,second){return list.some(pact=>pact.key===pactKey
 function hasAlliance(first,second){return pactActive(state.alliances,first,second)}
 function hasCeasefire(first,second){return pactActive(state.ceasefires,first,second)}
 function isDiplomacyProtected(first,second){return first!==null&&second!==null&&(hasAlliance(first,second)||hasCeasefire(first,second))}
-function expireDiplomacy(){state.alliances=state.alliances.filter(pact=>pact.until>state.roundCount);state.ceasefires=state.ceasefires.filter(pact=>pact.until>state.roundCount);state.diplomacyOffers=state.diplomacyOffers.filter(offer=>offer.until>state.roundCount&&state.players.some(p=>p.id===offer.from&&!p.eliminated)&&state.players.some(p=>p.id===offer.to&&!p.eliminated))}
+function expireDiplomacy(){
+  const expired=[...state.alliances.filter(pact=>pact.until<=state.roundCount).map(pact=>({...pact,type:'alliance'})),...state.ceasefires.filter(pact=>pact.until<=state.roundCount).map(pact=>({...pact,type:'ceasefire'}))]
+  state.pendingRenewals.push(...expired.filter(pact=>!state.pendingRenewals.some(existing=>existing.key===pact.key)))
+  state.alliances=state.alliances.filter(pact=>pact.until>state.roundCount);state.ceasefires=state.ceasefires.filter(pact=>pact.until>state.roundCount);state.diplomacyOffers=state.diplomacyOffers.filter(offer=>offer.until>state.roundCount&&state.players.some(p=>p.id===offer.from&&!p.eliminated)&&state.players.some(p=>p.id===offer.to&&!p.eliminated))
+}
 function allianceCount(playerId){return state.alliances.filter(pact=>pact.key.split(':').map(Number).includes(playerId)&&pact.until>state.roundCount).length}
 function attackedThisRound(first,second){return Boolean(state.diplomacyAggression[pactKey(first,second)]===state.roundCount)}
 function agreementStatus(playerId){
@@ -462,8 +468,10 @@ function formPact(type,first,second){
   list.splice(0,list.length,...list.filter(pact=>pact.key!==key))
   // Keep the agreement through the current round, then for its promised full rounds.
   list.push({key,until:state.roundCount+(type==='alliance'?4:2)})
+  state.pendingRenewals=state.pendingRenewals.filter(pact=>pact.key!==key)
   return true
 }
+function renewPact(type,key){const ids=key.split(':').map(Number);if(formPact(type==='Alliance'?'alliance':'ceasefire',ids[0],ids[1])){state.message='Pact renewed.';render()}}
 function requestPact(type,targetId){
   const current=state.players[state.turn]
   const target=state.players.find(player=>player.id===Number(targetId))
@@ -543,7 +551,7 @@ function startGame() {
   state.players=Array.from({length:state.playerCount},(_,i)=>({id:i,name:`Player ${i+1}`,color:COLORS[i],isHuman:i<state.humanCount,eliminated:false}))
   assignConnectedRealms()
   assignRealmNames()
-  Object.assign(state,{phase:'war',turn:0,turnCount:0,roundCount:0,alliances:[],ceasefires:[],diplomacyTarget:null,diplomacyOffers:[],diplomacySent:{},diplomacyAggression:{},attacksThisTurn:{},selected:null,claimWinner:null,dice:[],battle:null,message:turnMessage(state.players[0])}); render()
+  Object.assign(state,{phase:'war',turn:0,turnCount:0,roundCount:0,alliances:[],ceasefires:[],pendingRenewals:[],diplomacyTarget:null,diplomacyOffers:[],diplomacySent:{},diplomacyAggression:{},attacksThisTurn:{},selected:null,claimWinner:null,dice:[],battle:null,message:turnMessage(state.players[0])}); render()
 }
 
 function assignRealmNames() {
@@ -675,7 +683,7 @@ function spawnRebellion(){
   return ` Rebels rose in ${territory.name}; conquer it to restore the realm.`
 }
 function endTurn(){
-  clearTimeout(state.aiTimer);state.turnCount++;state.territories.forEach(t=>{t.attacked=false;t.attacks=0});state.attacksThisTurn={}
+  clearTimeout(state.aiTimer);const endingPlayer=state.players[state.turn];if(endingPlayer?.isHuman)state.pendingRenewals=state.pendingRenewals.filter(pact=>!pact.key.split(':').map(Number).includes(endingPlayer.id));state.turnCount++;state.territories.forEach(t=>{t.attacked=false;t.attacks=0});state.attacksThisTurn={}
   const active=state.players.filter(player=>!player.eliminated),currentIndex=active.findIndex(player=>player.id===state.players[state.turn]?.id),roundComplete=currentIndex===active.length-1
   if(roundComplete){state.roundCount++;state.diplomacySent={};expireDiplomacy();state.diplomacyAggression={}}
   state.turn=active[(currentIndex+1)%active.length]?.id??state.turn
