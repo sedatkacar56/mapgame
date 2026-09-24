@@ -87,7 +87,7 @@ document.querySelector('#root').innerHTML = `
             <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="8" height="8" fill="#d7d1bd"/><line x1="0" y1="0" x2="0" y2="8" stroke="#c2bba6" stroke-width="2" /></pattern>
           </defs>
           <rect width="1200" height="750" class="sea"/>
-          <g id="map-viewport"><g id="countries"></g><g id="attack-arrows"></g><g id="labels"></g><g id="player-labels"></g></g>
+          <g id="map-viewport"><g id="countries"></g><g id="attack-arrows"></g><g id="strength-badges"></g><g id="labels"></g><g id="player-labels"></g></g>
         </svg>
         <div class="map-controls">
           <button id="zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
@@ -446,6 +446,7 @@ function render() {
   renderActions(); renderModal(); renderDiplomacyOffers(); updatePlayerLabels()
   renderPacts()
   renderAttackArrow()
+  renderStrengthBadges()
   const controls=$('.map-controls'),hideButton=$('#toggle-controls'),showButton=$('#show-controls');if(controls)controls.classList.toggle('hidden',state.controlsHidden);if(hideButton)hideButton.setAttribute('aria-pressed',String(state.controlsHidden));if(showButton)showButton.classList.toggle('visible',state.controlsHidden)
 }
 
@@ -469,6 +470,11 @@ function renderAttackArrow(){
   const source=state.territories.find(t=>t.id===animation.sourceId),target=state.territories.find(t=>t.id===animation.targetId)
   if(!source?.mapCenter||!target?.mapCenter)return
   const line=document.createElementNS('http://www.w3.org/2000/svg','line');line.setAttribute('x1',source.mapCenter[0]);line.setAttribute('y1',source.mapCenter[1]);line.setAttribute('x2',target.mapCenter[0]);line.setAttribute('y2',target.mapCenter[1]);line.setAttribute('class','attack-arrow');line.setAttribute('marker-end','url(#attack-arrowhead)');layer.appendChild(line)
+}
+function renderStrengthBadges(){
+  const layer=$('#strength-badges');if(!layer)return
+  layer.innerHTML='';if(!state.strengthsOn||state.strengthView!=='combined')return
+  state.territories.forEach(t=>{if(!t.mapCenter)return;const label=document.createElementNS('http://www.w3.org/2000/svg','text');label.setAttribute('x',t.mapCenter[0]);label.setAttribute('y',t.mapCenter[1]);label.setAttribute('class','strength-badge');label.textContent=`⚔${t.attackStrength||0} 🛡${t.defenseStrength||0}`;layer.appendChild(label)})
 }
 
 function pactKey(first,second){return [first,second].sort((a,b)=>a-b).join(':')}

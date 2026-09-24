@@ -38,6 +38,7 @@ header { height: 74px; flex: 0 0 auto; display: grid; grid-template-columns: 250
 .country.ceasefire-border { stroke: #83c7e8; stroke-width: 2.2; stroke-dasharray: 1.5 2.5; }
 .country.rebel { fill: #726b5b !important; stroke: #f0c96b; stroke-width: 2.4; stroke-dasharray: 4 2; }
 .attack-arrow { stroke: #f0c771; stroke-width: 3; stroke-dasharray: 9 5; opacity: .95; filter: drop-shadow(0 1px 2px rgba(0,0,0,.7)); animation: attack-dash .55s linear infinite; pointer-events: none; }
+.strength-badge { paint-order: stroke; stroke: #09110f; stroke-width: 3px; fill: #fff1c9; font: 700 9px 'DM Sans'; text-anchor: middle; dominant-baseline: middle; pointer-events: none; }
 @keyframes attack-dash { to { stroke-dashoffset: -28; } }
 @keyframes pulse { 50% { filter: brightness(1.28); } }
 .compass { position: absolute; left: 28px; bottom: 28px; width: 54px; height: 54px; border: 1px solid rgba(231,220,191,.45); border-radius: 50%; display: grid; place-items: center; color: #d3c8aa; }
