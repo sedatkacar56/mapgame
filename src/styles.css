@@ -19,6 +19,8 @@ header { height: 74px; flex: 0 0 auto; display: grid; grid-template-columns: 250
 .ghost { justify-self: end; color: #c1c7c3; background: none; border: 1px solid #35423d; border-radius: 3px; padding: 9px 16px; text-transform: uppercase; font-size: 10px; letter-spacing: 1.5px; }
 .header-actions { justify-self: end; display: flex; gap: 8px; }
 .music-style, .strength-view, .music-choice select { color: #d8d2c2; background: #111a17; border: 1px solid #35423d; border-radius: 3px; padding: 8px; font: inherit; }
+.volume-control { display: flex; align-items: center; gap: 5px; height: 30px; padding: 0 7px; color: #aeb7b1; text-transform: uppercase; font-size: 8px; letter-spacing: .8px; white-space: nowrap; }
+.volume-control input { width: 58px; accent-color: #d8aa51; }
 .music-choice { display: grid; gap: 6px; color: #b8c0bb; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; }
 .ghost:hover { border-color: #d2a54d; color: #e8c378; }
 .game-shell { min-height: 0; flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) 300px; }

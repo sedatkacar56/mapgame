@@ -36,6 +36,7 @@ The first load needs an internet connection to download the geographic border da
 - **Save** or **Load** stores campaigns in this browser. **Cmd+S** (or **Ctrl+S**) opens the save-name prompt.
 - **Strengths** is an optional rule in every attack mode. When enabled, successful attackers gain up to +3 attack strength, defenders that hold gain up to +3 defense strength, and captured territories reset their bonuses.
 - When Strengths is enabled, the **Strength view** selector offers Attack heatmap, Defense heatmap, Combined strength, or Off. The selector is disabled while Strengths is off.
+- The map controls include a **Volume** slider for the generated campaign music.
 - **New capture attack** is an optional rule, Off by default. When enabled, a territory captured during a successful battle may attack immediately; when disabled, it waits until the next turn.
 - **Rebels** is an optional rule, Off by default. Selecting Hard mode turns it on automatically, but it can be switched off at any time.
 - During a human turn, the Diplomacy panel can target any active realm with a 3-turn alliance or 1-turn ceasefire. Active agreements block attacks in both directions; AI realms may also form short agreements. Wars still require a border.
