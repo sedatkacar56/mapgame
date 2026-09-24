@@ -62,7 +62,7 @@ const state = {
   territories: [], players: [], humanCount: 1, playerCount: 4, phase: 'setup', turn: 0,
   claimWinner: null, selected: null, dice: [], battle: null, message: 'Prepare your campaign.', aiTimer: null, fastAI: false, musicOn: false,
   turnCount: 0, roundCount: 0, alliances: [], ceasefires: [], pendingRenewals: [], diplomacyTarget: null, diplomacyOffers: [], diplomacySent: {}, diplomacyAggression: {}, attackMode: 'normal', attacksThisTurn: {}, musicStyle: 'campaign', strengthsOn: false, captureAttackOn: false,
-  showPacts: false, controlsHidden: false, rebelsOn: false,
+  showPacts: false, controlsHidden: false, rebelsOn: false, attackAnimation: null,
   showLabels: true, showPlayerLabels: true,
   playerNames: Array(20).fill(''), playerLabelSize: 9
 }
@@ -83,11 +83,11 @@ document.querySelector('#root').innerHTML = `
       <div class="map-wrap">
         <svg class="map" viewBox="0 0 1200 750" role="img" aria-label="Interactive political map">
           <defs>
-            <filter id="shadow"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity=".3" /></filter>
+            <filter id="shadow"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity=".3" /></filter><marker id="attack-arrowhead" markerWidth="8" markerHeight="8" refX="7" refY="3.5" orient="auto"><path d="M0,0 L8,3.5 L0,7 z" fill="#f0c771" /></marker>
             <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="8" height="8" fill="#d7d1bd"/><line x1="0" y1="0" x2="0" y2="8" stroke="#c2bba6" stroke-width="2" /></pattern>
           </defs>
           <rect width="1200" height="750" class="sea"/>
-          <g id="map-viewport"><g id="countries"></g><g id="labels"></g><g id="player-labels"></g></g>
+          <g id="map-viewport"><g id="countries"></g><g id="attack-arrows"></g><g id="labels"></g><g id="player-labels"></g></g>
         </svg>
         <div class="map-controls">
           <button id="zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
@@ -431,6 +431,7 @@ function render() {
   })
   renderActions(); renderModal(); renderDiplomacyOffers(); updatePlayerLabels()
   renderPacts()
+  renderAttackArrow()
   const controls=$('.map-controls'),hideButton=$('#toggle-controls'),showButton=$('#show-controls');if(controls)controls.classList.toggle('hidden',state.controlsHidden);if(hideButton)hideButton.setAttribute('aria-pressed',String(state.controlsHidden));if(showButton)showButton.classList.toggle('visible',state.controlsHidden)
 }
 
@@ -443,8 +444,17 @@ function renderPacts(){
   ].map(pact=>{const ids=pact.key.split(':').map(Number),humanId=ids.find(id=>humanIds.has(id)),otherId=ids.find(id=>id!==humanId),human=state.players.find(player=>player.id===humanId),other=state.players.find(player=>player.id===otherId);return {...pact,human,other}}).filter(pact=>pact.human&&pact.other&&!pact.other.eliminated)
   const renewals=state.pendingRenewals.map(pact=>{const ids=pact.key.split(':').map(Number),humanId=ids.find(id=>humanIds.has(id)),otherId=ids.find(id=>id!==humanId),human=state.players.find(player=>player.id===humanId),other=state.players.find(player=>player.id===otherId);return {...pact,displayType:pact.type==='alliance'?'Alliance':'Ceasefire',human,other}}).filter(pact=>pact.human&&pact.other&&!pact.other.eliminated)
   panel.classList.toggle('open',state.showPacts)
-  panel.innerHTML=state.showPacts?`<div class="pacts-card"><b>ACTIVE PACTS</b>${pacts.length?pacts.map(pact=>`<div class="pact-line"><span>${pact.type==='Alliance'?'🤝':'🕊'} ${escapeHtml(pact.other.name)}</span><small>${Math.max(0,pact.until-state.roundCount-1)} rounds left</small></div>`).join(''):'<small>No active alliances or ceasefires.</small>'}${renewals.length?`<b class="renew-title">RENEWAL REQUESTS</b>${renewals.map(pact=>`<div class="pact-line"><span>${pact.displayType==='Alliance'?'🤝':'🕊'} ${escapeHtml(pact.other.name)}</span><button class="secondary renew-pact" data-renew-key="${pact.key}" data-renew-type="${pact.displayType}">Renew</button></div>`).join('')}`:''}</div>`:''
+  panel.innerHTML=state.showPacts&&(pacts.length||renewals.length)?`<div class="pacts-card"><b>ACTIVE PACTS</b>${pacts.length?pacts.map(pact=>`<div class="pact-line"><span>${pact.type==='Alliance'?'🤝':'🕊'} ${escapeHtml(pact.other.name)}</span><small>${Math.max(0,pact.until-state.roundCount-1)} rounds left</small></div>`).join(''):''}${renewals.length?`<b class="renew-title">RENEWAL REQUESTS</b>${renewals.map(pact=>`<div class="pact-line"><span>${pact.displayType==='Alliance'?'🤝':'🕊'} ${escapeHtml(pact.other.name)}</span><button class="secondary renew-pact" data-renew-key="${pact.key}" data-renew-type="${pact.displayType}">Renew</button></div>`).join('')}`:''}</div>`:''
   panel.querySelectorAll('.renew-pact').forEach(button=>button.onclick=()=>renewPact(button.dataset.renewType,button.dataset.renewKey))
+}
+
+function renderAttackArrow(){
+  const layer=$('#attack-arrows');if(!layer)return
+  layer.innerHTML='';const animation=state.attackAnimation
+  if(!animation||animation.until<Date.now())return
+  const source=state.territories.find(t=>t.id===animation.sourceId),target=state.territories.find(t=>t.id===animation.targetId)
+  if(!source?.mapCenter||!target?.mapCenter)return
+  const line=document.createElementNS('http://www.w3.org/2000/svg','line');line.setAttribute('x1',source.mapCenter[0]);line.setAttribute('y1',source.mapCenter[1]);line.setAttribute('x2',target.mapCenter[0]);line.setAttribute('y2',target.mapCenter[1]);line.setAttribute('class','attack-arrow');line.setAttribute('marker-end','url(#attack-arrowhead)');layer.appendChild(line)
 }
 
 function pactKey(first,second){return [first,second].sort((a,b)=>a-b).join(':')}
@@ -669,7 +679,7 @@ function resolveBattle(sourceId,targetId,playerId) {
   const source=state.territories.find(t=>t.id===sourceId),target=state.territories.find(t=>t.id===targetId),defenderId=target.owner
   if(isDiplomacyProtected(playerId,defenderId)){state.selected=null;state.message='An active alliance or ceasefire prevents this attack.';render();return}
   const a=roll(),d=roll(),attackTotal=a+(state.strengthsOn?source.attackStrength||0:0),defenseTotal=d+(state.strengthsOn?target.defenseStrength||0:0),conquered=attackTotal>defenseTotal
-  source.attacks=1;source.attacked=true;state.attacksThisTurn[playerId]=(state.attacksThisTurn[playerId]||0)+1;if(defenderId!==null&&defenderId!==playerId)state.diplomacyAggression[pactKey(playerId,defenderId)]=state.roundCount;if(conquered){target.owner=playerId;target.rebel=false;target.attacks=state.captureAttackOn?0:1;target.attacked=!state.captureAttackOn}state.battle={attackerRoll:a,defenderRoll:d};state.selected=null
+  source.attacks=1;source.attacked=true;state.attacksThisTurn[playerId]=(state.attacksThisTurn[playerId]||0)+1;if(defenderId!==null&&defenderId!==playerId)state.diplomacyAggression[pactKey(playerId,defenderId)]=state.roundCount;if(conquered){target.owner=playerId;target.rebel=false;target.attacks=state.captureAttackOn?0:1;target.attacked=!state.captureAttackOn}state.attackAnimation=state.players[playerId]?.isHuman?null:{sourceId,targetId,until:Date.now()+(state.fastAI?450:1400)};state.battle={attackerRoll:a,defenderRoll:d};state.selected=null
   if(state.strengthsOn){if(conquered)source.attackStrength=Math.min(3,(source.attackStrength||0)+1);else target.defenseStrength=Math.min(3,(target.defenseStrength||0)+1);if(conquered){target.attackStrength=0;target.defenseStrength=0}}
   state.battle={attackerRoll:attackTotal,defenderRoll:defenseTotal};state.selected=null
   state.message=conquered?`${state.players[playerId].name} conquered ${target.name} from ${source.name}!`:`${target.name} held the line against ${source.name}.`
@@ -679,7 +689,7 @@ function resolveBattle(sourceId,targetId,playerId) {
     state.message+=` ${defeated.name} has been eliminated.`
   }
   const survivors=state.players.filter(p=>state.territories.some(t=>t.owner===p.id))
-  if(survivors.length===1){state.phase='gameover';state.message=`${survivors[0].name} is the last realm standing!`} render()
+  if(survivors.length===1){state.phase='gameover';state.message=`${survivors[0].name} is the last realm standing!`} render();if(state.attackAnimation)setTimeout(()=>{if(state.attackAnimation?.until<=Date.now()){state.attackAnimation=null;render()}},state.fastAI?500:1450)
 }
 
 function spawnRebellion(){
