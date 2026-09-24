@@ -62,7 +62,7 @@ const state = {
   territories: [], players: [], humanCount: 1, playerCount: 4, phase: 'setup', turn: 0,
   claimWinner: null, selected: null, dice: [], battle: null, message: 'Prepare your campaign.', aiTimer: null, fastAI: false, musicOn: false,
   turnCount: 0, roundCount: 0, alliances: [], ceasefires: [], pendingRenewals: [], diplomacyTarget: null, diplomacyOffers: [], diplomacySent: {}, diplomacyAggression: {}, attackMode: 'normal', attacksThisTurn: {}, musicStyle: 'campaign', strengthsOn: false, captureAttackOn: false,
-  showPacts: false,
+  showPacts: false, controlsHidden: false,
   showLabels: true, showPlayerLabels: true,
   playerNames: Array(20).fill(''), playerLabelSize: 9
 }
@@ -98,9 +98,9 @@ document.querySelector('#root').innerHTML = `
           <button id="toggle-fast-ai" class="names-button" aria-pressed="false" title="AI turns play immediately; human turns stay manual">Fast AI</button>
           <button id="toggle-hard-mode" class="names-button" aria-pressed="false" title="Cycle Normal, Moderate, and Hard attack modes">Mode: Normal · 1 attack</button><button id="toggle-strengths" class="names-button" aria-pressed="false" title="Toggle attack and defense strength bonuses">Strengths: Off</button><button id="toggle-capture-attack" class="names-button" aria-pressed="false" title="Allow a newly captured territory to attack immediately">New capture attack: Off</button>
           <button id="toggle-music" class="names-button" aria-pressed="false" title="Toggle the campaign soundtrack">♫ Music: Off</button><select id="music-style" class="music-style" aria-label="Music style"><option value="campaign">Campaign</option><option value="tension">Battle tension</option><option value="march">War march</option><option value="shadow">Dark frontier</option><option value="calm">Quiet command</option></select>
-          <button id="toggle-pacts" class="names-button" aria-pressed="false">Pacts</button>
+          <button id="toggle-pacts" class="names-button" aria-pressed="false">Pacts</button><button id="toggle-controls" class="names-button" aria-pressed="false">Hide controls</button>
           <label class="label-size-control">Name size <input id="player-label-size" type="range" min="4" max="14" step="1" value="9"><output id="player-label-size-value">9</output></label>
-        </div><div id="diplomacy-panel"></div>
+        </div><button id="show-controls" class="show-controls" aria-label="Show map controls">☰ Controls</button><div id="diplomacy-panel"></div>
         <div class="compass"><i>N</i><span>✦</span></div><div class="map-caption">EUROPE · NORTH AFRICA · WESTERN ASIA</div>
       </div>
       <aside>
@@ -424,6 +424,7 @@ function render() {
   })
   renderActions(); renderModal(); renderDiplomacyOffers(); updatePlayerLabels()
   renderPacts()
+  const controls=$('.map-controls'),hideButton=$('#toggle-controls'),showButton=$('#show-controls');if(controls)controls.classList.toggle('hidden',state.controlsHidden);if(hideButton)hideButton.setAttribute('aria-pressed',String(state.controlsHidden));if(showButton)showButton.classList.toggle('visible',state.controlsHidden)
 }
 
 function renderPacts(){
@@ -712,6 +713,8 @@ $('#toggle-hard-mode').onclick=toggleHardMode
 $('#toggle-strengths').onclick=toggleStrengths
 $('#toggle-capture-attack').onclick=toggleCaptureAttack
 $('#toggle-pacts').onclick=()=>{state.showPacts=!state.showPacts;const button=$('#toggle-pacts');button.classList.toggle('active',state.showPacts);button.setAttribute('aria-pressed',String(state.showPacts));renderPacts()}
+$('#toggle-controls').onclick=()=>{state.controlsHidden=true;render()}
+$('#show-controls').onclick=()=>{state.controlsHidden=false;render()}
 $('#toggle-music').onclick=toggleMusic
 $('#music-style').onchange=e=>{state.musicStyle=e.target.value;if(state.phase!=='setup'&&state.musicOn){clearInterval(musicTimer);musicTimer=setInterval(playCampaignBar,3200);playCampaignBar()}}
 function savedGameNames(){const prefix='borderline-dominion-save:';return Object.keys(localStorage).filter(key=>key.startsWith(prefix)).map(key=>key.slice(prefix.length)).sort()}
