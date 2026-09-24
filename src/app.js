@@ -423,10 +423,10 @@ function render() {
 function renderPacts(){
   const panel=$('#diplomacy-panel');if(!panel)return
   const button=$('#toggle-pacts');if(button){button.classList.toggle('active',state.showPacts);button.setAttribute('aria-pressed',String(state.showPacts))}
-  const current=state.players[state.turn],pacts=current?[
+  const humanIds=new Set(state.players.filter(player=>player.isHuman&&!player.eliminated).map(player=>player.id)),pacts=[
     ...state.alliances.filter(pact=>pact.until>state.roundCount).map(pact=>({...pact,type:'Alliance'})),
     ...state.ceasefires.filter(pact=>pact.until>state.roundCount).map(pact=>({...pact,type:'Ceasefire'}))
-  ].map(pact=>{const ids=pact.key.split(':').map(Number),otherId=ids.find(id=>id!==current.id),other=state.players.find(player=>player.id===otherId);return {...pact,other}}).filter(pact=>pact.other&&!pact.other.eliminated):[]
+  ].map(pact=>{const ids=pact.key.split(':').map(Number),humanId=ids.find(id=>humanIds.has(id)),otherId=ids.find(id=>id!==humanId),human=state.players.find(player=>player.id===humanId),other=state.players.find(player=>player.id===otherId);return {...pact,human,other}}).filter(pact=>pact.human&&pact.other&&!pact.other.eliminated)
   panel.classList.toggle('open',state.showPacts)
   panel.innerHTML=state.showPacts?`<div class="pacts-card"><b>ACTIVE PACTS</b>${pacts.length?pacts.map(pact=>`<div class="pact-line"><span>${pact.type==='Alliance'?'🤝':'🕊'} ${escapeHtml(pact.other.name)}</span><small>${Math.max(0,pact.until-state.roundCount-1)} rounds left</small></div>`).join(''):'<small>No active alliances or ceasefires.</small>'}</div>`:''
 }
