@@ -62,7 +62,7 @@ const state = {
   territories: [], players: [], humanCount: 1, playerCount: 4, phase: 'setup', turn: 0,
   claimWinner: null, selected: null, dice: [], battle: null, message: 'Prepare your campaign.', aiTimer: null, fastAI: false, musicOn: false,
   turnCount: 0, roundCount: 0, alliances: [], ceasefires: [], pendingRenewals: [], diplomacyTarget: null, diplomacyOffers: [], diplomacySent: {}, diplomacyAggression: {}, attackMode: 'normal', attacksThisTurn: {}, musicStyle: 'campaign', strengthsOn: false, captureAttackOn: false,
-  showPacts: false, controlsHidden: false, rebelsOn: false, alliancesOn: true, autoRejectOffers: false, attackAnimation: null,
+  showPacts: false, controlsHidden: false, rebelsOn: false, alliancesOn: true, autoRejectOffers: false, strengthView: 'off', attackAnimation: null,
   showLabels: true, showPlayerLabels: true,
   playerNames: Array(20).fill(''), playerLabelSize: 9
 }
@@ -96,7 +96,7 @@ document.querySelector('#root').innerHTML = `
           <button id="toggle-labels" class="names-button" aria-pressed="false">Place names</button>
           <button id="toggle-player-labels" class="names-button" aria-pressed="false">Player names</button>
           <button id="toggle-fast-ai" class="names-button" aria-pressed="false" title="AI turns play immediately; human turns stay manual">Fast AI</button>
-          <button id="toggle-hard-mode" class="names-button" aria-pressed="false" title="Cycle Normal, Moderate, and Hard attack modes">Mode: Normal · 1 attack</button><button id="toggle-strengths" class="names-button" aria-pressed="false" title="Toggle attack and defense strength bonuses">Strengths: Off</button><button id="toggle-capture-attack" class="names-button" aria-pressed="false" title="Allow a newly captured territory to attack immediately">New capture attack: Off</button><button id="toggle-rebels" class="names-button" aria-pressed="false" title="Toggle Hard-mode rebellions">Rebels: Off</button>
+          <button id="toggle-hard-mode" class="names-button" aria-pressed="false" title="Cycle Normal, Moderate, and Hard attack modes">Mode: Normal · 1 attack</button><button id="toggle-strengths" class="names-button" aria-pressed="false" title="Toggle attack and defense strength bonuses">Strengths: Off</button><select id="strength-view" class="strength-view" aria-label="Strength map view" disabled><option value="off">Strength view: Off</option><option value="attack">Attack heatmap</option><option value="defense">Defense heatmap</option><option value="combined">Combined strength</option></select><button id="toggle-capture-attack" class="names-button" aria-pressed="false" title="Allow a newly captured territory to attack immediately">New capture attack: Off</button><button id="toggle-rebels" class="names-button" aria-pressed="false" title="Toggle Hard-mode rebellions">Rebels: Off</button>
           <button id="toggle-music" class="names-button" aria-pressed="false" title="Toggle the campaign soundtrack">♫ Music: Off</button><select id="music-style" class="music-style" aria-label="Music style"><option value="campaign">Campaign</option><option value="tension">Battle tension</option><option value="march">War march</option><option value="shadow">Dark frontier</option><option value="calm">Quiet command</option></select>
           <button id="toggle-pacts" class="names-button" aria-pressed="false">Pacts</button><button id="toggle-alliances" class="names-button" aria-pressed="true">Alliances: On</button><button id="toggle-auto-reject" class="names-button" aria-pressed="false">Auto-reject offers: Off</button><button id="toggle-controls" class="names-button" aria-pressed="false">Hide controls</button>
           <label class="label-size-control">Name size <input id="player-label-size" type="range" min="4" max="14" step="1" value="9"><output id="player-label-size-value">9</output></label>
@@ -365,6 +365,7 @@ function updateStrengthButtons(){
   const button=$('#toggle-strengths');if(button){button.textContent=label;button.classList.toggle('active',state.strengthsOn);button.setAttribute('aria-pressed',String(state.strengthsOn))}
   const setup=$('#setup-strengths');if(setup){setup.textContent=label;setup.classList.toggle('active',state.strengthsOn);setup.setAttribute('aria-pressed',String(state.strengthsOn))}
 }
+function updateStrengthView(){state.strengthView??='off';const select=$('#strength-view');if(select){select.disabled=!state.strengthsOn;select.value=state.strengthsOn?state.strengthView:'off'}}
 function updateCaptureAttackButtons(){
   const label=`New capture attack: ${state.captureAttackOn?'On':'Off'}`
   const button=$('#toggle-capture-attack');if(button){button.textContent=label;button.classList.toggle('active',state.captureAttackOn);button.setAttribute('aria-pressed',String(state.captureAttackOn))}
@@ -415,6 +416,7 @@ function render() {
   const fastButton=$('#toggle-fast-ai');if(fastButton){fastButton.classList.toggle('active',state.fastAI);fastButton.setAttribute('aria-pressed',String(state.fastAI))}
   updateHardModeButtons()
   updateStrengthButtons()
+  updateStrengthView()
   updateCaptureAttackButtons()
   updateRebelButtons()
   updateAllianceButtons()
@@ -429,7 +431,8 @@ function render() {
   })
   document.querySelectorAll('.country').forEach(el => {
     const t=state.territories.find(x=>x.id===el.dataset.id), owner=state.players.find(p=>p.id===t.owner)
-    el.style.fill = owner?.color || '#d7d1bd'
+    const heat=['#d7d1bd','#f0d36a','#e9954f','#d9574f'],viewValue=state.strengthView==='attack'?(t.attackStrength||0):state.strengthView==='defense'?(t.defenseStrength||0):0
+    el.style.fill = state.strengthsOn&&state.strengthView!=='off'&&state.strengthView!=='combined'?heat[Math.min(3,viewValue)]:(owner?.color || '#d7d1bd')
     const source=state.territories.find(x=>x.id===state.selected)
     const currentId=state.players[state.turn]?.id
     const pactClass=hasAlliance(currentId,t.owner)?'allied-border':hasCeasefire(currentId,t.owner)?'ceasefire-border':''
@@ -743,6 +746,7 @@ function toggleRebels(){state.rebelsOn=!state.rebelsOn;updateRebelButtons();if(s
 function toggleAlliances(){state.alliancesOn=!state.alliancesOn;updateAllianceButtons();if(state.phase==='war')render()}
 $('#toggle-hard-mode').onclick=toggleHardMode
 $('#toggle-strengths').onclick=toggleStrengths
+$('#strength-view').onchange=e=>{if(state.strengthsOn){state.strengthView=e.target.value;render()}}
 $('#toggle-capture-attack').onclick=toggleCaptureAttack
 $('#toggle-rebels').onclick=toggleRebels
 $('#toggle-alliances').onclick=toggleAlliances
