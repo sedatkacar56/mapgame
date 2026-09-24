@@ -62,7 +62,7 @@ const state = {
   territories: [], players: [], humanCount: 1, playerCount: 4, phase: 'setup', turn: 0,
   claimWinner: null, selected: null, dice: [], battle: null, message: 'Prepare your campaign.', aiTimer: null, fastAI: false, musicOn: false,
   turnCount: 0, roundCount: 0, alliances: [], ceasefires: [], pendingRenewals: [], diplomacyTarget: null, diplomacyOffers: [], diplomacySent: {}, diplomacyAggression: {}, attackMode: 'normal', attacksThisTurn: {}, musicStyle: 'campaign', strengthsOn: false, captureAttackOn: false,
-  showPacts: false, controlsHidden: false, rebelsOn: false, alliancesOn: true, attackAnimation: null,
+  showPacts: false, controlsHidden: false, rebelsOn: false, alliancesOn: true, autoRejectOffers: false, attackAnimation: null,
   showLabels: true, showPlayerLabels: true,
   playerNames: Array(20).fill(''), playerLabelSize: 9
 }
@@ -98,7 +98,7 @@ document.querySelector('#root').innerHTML = `
           <button id="toggle-fast-ai" class="names-button" aria-pressed="false" title="AI turns play immediately; human turns stay manual">Fast AI</button>
           <button id="toggle-hard-mode" class="names-button" aria-pressed="false" title="Cycle Normal, Moderate, and Hard attack modes">Mode: Normal · 1 attack</button><button id="toggle-strengths" class="names-button" aria-pressed="false" title="Toggle attack and defense strength bonuses">Strengths: Off</button><button id="toggle-capture-attack" class="names-button" aria-pressed="false" title="Allow a newly captured territory to attack immediately">New capture attack: Off</button><button id="toggle-rebels" class="names-button" aria-pressed="false" title="Toggle Hard-mode rebellions">Rebels: Off</button>
           <button id="toggle-music" class="names-button" aria-pressed="false" title="Toggle the campaign soundtrack">♫ Music: Off</button><select id="music-style" class="music-style" aria-label="Music style"><option value="campaign">Campaign</option><option value="tension">Battle tension</option><option value="march">War march</option><option value="shadow">Dark frontier</option><option value="calm">Quiet command</option></select>
-          <button id="toggle-pacts" class="names-button" aria-pressed="false">Pacts</button><button id="toggle-alliances" class="names-button" aria-pressed="true">Alliances: On</button><button id="toggle-controls" class="names-button" aria-pressed="false">Hide controls</button>
+          <button id="toggle-pacts" class="names-button" aria-pressed="false">Pacts</button><button id="toggle-alliances" class="names-button" aria-pressed="true">Alliances: On</button><button id="toggle-auto-reject" class="names-button" aria-pressed="false">Auto-reject offers: Off</button><button id="toggle-controls" class="names-button" aria-pressed="false">Hide controls</button>
           <label class="label-size-control">Name size <input id="player-label-size" type="range" min="4" max="14" step="1" value="9"><output id="player-label-size-value">9</output></label>
         </div><button id="show-controls" class="show-controls" aria-label="Show map controls">☰ Controls</button><div id="diplomacy-panel"></div>
         <div class="compass"><i>N</i><span>✦</span></div><div class="map-caption">EUROPE · NORTH AFRICA · WESTERN ASIA</div>
@@ -380,9 +380,11 @@ function updateAllianceButtons(){
   const button=$('#toggle-alliances');if(button){button.textContent=label;button.classList.toggle('active',state.alliancesOn);button.setAttribute('aria-pressed',String(state.alliancesOn))}
   const setup=$('#setup-alliances');if(setup){setup.textContent=label;setup.classList.toggle('active',state.alliancesOn);setup.setAttribute('aria-pressed',String(state.alliancesOn))}
 }
+function updateAutoRejectButton(){const button=$('#toggle-auto-reject');if(button){button.textContent=`Auto-reject offers: ${state.autoRejectOffers?'On':'Off'}`;button.classList.toggle('active',state.autoRejectOffers);button.setAttribute('aria-pressed',String(state.autoRejectOffers))}}
 
 function attackLimit(){return state.attackMode==='moderate'?3:Infinity}
 function canAttack(territory){return territory.attacks<1&&(state.attackMode!=='moderate'||(state.attacksThisTurn[territory.owner]||0)<attackLimit())}
+function hasAvailableAttack(playerId){return state.territories.some(source=>source.owner===playerId&&canAttack(source)&&source.neighbors.some(id=>{const target=state.territories.find(t=>t.id===id);return target&&target.owner!==playerId&&!isDiplomacyProtected(playerId,target.owner)}))}
 
 async function toggleMusic() {
   const AudioEngine=window.AudioContext||window.webkitAudioContext
@@ -416,6 +418,7 @@ function render() {
   updateCaptureAttackButtons()
   updateRebelButtons()
   updateAllianceButtons()
+  updateAutoRejectButton()
   updateMusicButtons()
   const playerOrder=[...state.players].sort((a,b)=>Number(a.eliminated)-Number(b.eliminated)||state.territories.filter(t=>t.owner===b.id).length-state.territories.filter(t=>t.owner===a.id).length||a.id-b.id)
   $('#players').innerHTML = playerOrder.length ? playerOrder.map(p=>`
@@ -510,6 +513,7 @@ function requestPact(type,targetId){
   if(!current||!target){state.message='That realm is not available for diplomacy.';render();return}
   if(hasAlliance(current.id,target.id)||hasCeasefire(current.id,target.id)){state.message=`${target.name} already has an agreement with you.`;render();return}
   if(attackedThisRound(current.id,target.id)){state.message=`${target.name} rejects diplomacy because you attacked this realm this round.`;render();return}
+  if(!target.isHuman&&!hasAvailableAttack(target.id)){state.message=`${target.name} has no available attacks and will not accept diplomacy now.`;render();return}
   const sentKey=`${state.roundCount}:${current.id}:${target.id}:${type}`
   if(state.diplomacySent[sentKey]){state.message=`You already sent that offer to ${target.name} this round.`;render();return}
   state.diplomacySent[sentKey]=true
@@ -541,6 +545,7 @@ function renderDiplomacyOffers(){
 }
 function aiDiplomacy(player){
   if(Math.random()>.2)return
+  if(!hasAvailableAttack(player.id))return
   const targets=diplomacyTargets(player.id).filter(target=>pactCount(player.id)<2&&pactCount(target.id)<2&&!isDiplomacyProtected(player.id,target.id)&&!attackedThisRound(player.id,target.id)&&(!state.diplomacySent[`${state.roundCount}:${player.id}:${target.id}:alliance`]||!state.diplomacySent[`${state.roundCount}:${player.id}:${target.id}:ceasefire`]))
   if(!targets.length)return
   const target=targets.sort((a,b)=>state.territories.filter(t=>t.owner===b.id).length-state.territories.filter(t=>t.owner===a.id).length)[0]
@@ -548,7 +553,7 @@ function aiDiplomacy(player){
   const sentKey=`${state.roundCount}:${player.id}:${target.id}:${type}`
   if(state.diplomacySent[sentKey])return
   state.diplomacySent[sentKey]=true
-  if(target.isHuman){if(!state.diplomacyOffers.some(offer=>offer.from===player.id&&offer.to===target.id)){state.diplomacyOffers.push({from:player.id,to:target.id,type,until:state.roundCount+4})}return}
+  if(target.isHuman){if(state.autoRejectOffers)return;if(!state.diplomacyOffers.some(offer=>offer.from===player.id&&offer.to===target.id)){state.diplomacyOffers.push({from:player.id,to:target.id,type,until:state.roundCount+4})}return}
   formPact(type,player.id,target.id)
 }
 
@@ -741,6 +746,7 @@ $('#toggle-strengths').onclick=toggleStrengths
 $('#toggle-capture-attack').onclick=toggleCaptureAttack
 $('#toggle-rebels').onclick=toggleRebels
 $('#toggle-alliances').onclick=toggleAlliances
+$('#toggle-auto-reject').onclick=()=>{state.autoRejectOffers=!state.autoRejectOffers;if(state.autoRejectOffers)state.diplomacyOffers=[];updateAutoRejectButton();render()}
 $('#toggle-pacts').onclick=()=>{state.showPacts=!state.showPacts;const button=$('#toggle-pacts');button.classList.toggle('active',state.showPacts);button.setAttribute('aria-pressed',String(state.showPacts));renderPacts()}
 $('#toggle-controls').onclick=()=>{state.controlsHidden=true;render()}
 $('#show-controls').onclick=()=>{state.controlsHidden=false;render()}
