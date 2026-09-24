@@ -411,8 +411,9 @@ function render() {
   updateCaptureAttackButtons()
   updateRebelButtons()
   updateMusicButtons()
-  $('#players').innerHTML = state.players.length ? state.players.map((p,i)=>`
-    <div class="player ${state.phase==='war'&&i===state.turn?'active':''} ${p.eliminated?'eliminated':''} ${state.diplomacyTarget===p.id?'diplomacy-target':''}" data-player-id="${p.id}" title="${state.phase==='war'&&p.id!==state.players[state.turn]?.id?'Select for diplomacy':'Your realm'}"><span class="swatch" style="background:${p.color}"></span><div><b>${escapeHtml(p.name)}</b><small>${p.eliminated?'Eliminated':p.isHuman?'Human player':'AI player'}${state.phase==='war'&&p.id!==state.players[state.turn]?.id?agreementStatus(p.id):''}</small></div><strong>${state.territories.filter(t=>t.owner===p.id).length}</strong></div>`).join('') : '<p class="empty">The players will appear here.</p>'
+  const playerOrder=[...state.players].sort((a,b)=>Number(a.eliminated)-Number(b.eliminated)||state.territories.filter(t=>t.owner===b.id).length-state.territories.filter(t=>t.owner===a.id).length||a.id-b.id)
+  $('#players').innerHTML = playerOrder.length ? playerOrder.map(p=>`
+    <div class="player ${state.phase==='war'&&p.id===state.players[state.turn]?.id?'active':''} ${p.eliminated?'eliminated':''} ${state.diplomacyTarget===p.id?'diplomacy-target':''}" data-player-id="${p.id}" title="${state.phase==='war'&&p.id!==state.players[state.turn]?.id?'Select for diplomacy':'Your realm'}"><span class="swatch" style="background:${p.color}"></span><div><b>${escapeHtml(p.name)}</b><small>${p.eliminated?'Eliminated':p.isHuman?'Human player':'AI player'}${state.phase==='war'&&p.id!==state.players[state.turn]?.id?agreementStatus(p.id):''}</small></div><strong>${state.territories.filter(t=>t.owner===p.id).length}</strong></div>`).join('') : '<p class="empty">The players will appear here.</p>'
   document.querySelectorAll('.player[data-player-id]').forEach(row=>row.onclick=()=>{
     const targetId=Number(row.dataset.playerId), current=state.players[state.turn]
     if(state.phase==='war'&&current?.isHuman&&targetId!==current.id&&!state.players.find(p=>p.id===targetId)?.eliminated){state.diplomacyTarget=targetId;state.message=`${state.players[targetId].name} selected for diplomacy.`;render()}
