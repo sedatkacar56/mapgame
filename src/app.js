@@ -62,7 +62,7 @@ const state = {
   territories: [], players: [], humanCount: 1, playerCount: 4, phase: 'setup', turn: 0,
   claimWinner: null, selected: null, dice: [], battle: null, message: 'Prepare your campaign.', aiTimer: null, fastAI: false, musicOn: false,
   turnCount: 0, roundCount: 0, alliances: [], ceasefires: [], pendingRenewals: [], diplomacyTarget: null, diplomacyOffers: [], diplomacySent: {}, diplomacyAggression: {}, attackMode: 'normal', attacksThisTurn: {}, musicStyle: 'campaign', strengthsOn: false, captureAttackOn: false,
-  showPacts: false, controlsHidden: false, rebelsOn: false, attackAnimation: null,
+  showPacts: false, controlsHidden: false, rebelsOn: false, alliancesOn: true, attackAnimation: null,
   showLabels: true, showPlayerLabels: true,
   playerNames: Array(20).fill(''), playerLabelSize: 9
 }
@@ -98,7 +98,7 @@ document.querySelector('#root').innerHTML = `
           <button id="toggle-fast-ai" class="names-button" aria-pressed="false" title="AI turns play immediately; human turns stay manual">Fast AI</button>
           <button id="toggle-hard-mode" class="names-button" aria-pressed="false" title="Cycle Normal, Moderate, and Hard attack modes">Mode: Normal · 1 attack</button><button id="toggle-strengths" class="names-button" aria-pressed="false" title="Toggle attack and defense strength bonuses">Strengths: Off</button><button id="toggle-capture-attack" class="names-button" aria-pressed="false" title="Allow a newly captured territory to attack immediately">New capture attack: Off</button><button id="toggle-rebels" class="names-button" aria-pressed="false" title="Toggle Hard-mode rebellions">Rebels: Off</button>
           <button id="toggle-music" class="names-button" aria-pressed="false" title="Toggle the campaign soundtrack">♫ Music: Off</button><select id="music-style" class="music-style" aria-label="Music style"><option value="campaign">Campaign</option><option value="tension">Battle tension</option><option value="march">War march</option><option value="shadow">Dark frontier</option><option value="calm">Quiet command</option></select>
-          <button id="toggle-pacts" class="names-button" aria-pressed="false">Pacts</button><button id="toggle-controls" class="names-button" aria-pressed="false">Hide controls</button>
+          <button id="toggle-pacts" class="names-button" aria-pressed="false">Pacts</button><button id="toggle-alliances" class="names-button" aria-pressed="true">Alliances: On</button><button id="toggle-controls" class="names-button" aria-pressed="false">Hide controls</button>
           <label class="label-size-control">Name size <input id="player-label-size" type="range" min="4" max="14" step="1" value="9"><output id="player-label-size-value">9</output></label>
         </div><button id="show-controls" class="show-controls" aria-label="Show map controls">☰ Controls</button><div id="diplomacy-panel"></div>
         <div class="compass"><i>N</i><span>✦</span></div><div class="map-caption">EUROPE · NORTH AFRICA · WESTERN ASIA</div>
@@ -375,6 +375,11 @@ function updateRebelButtons(){
   const button=$('#toggle-rebels');if(button){button.textContent=label;button.classList.toggle('active',state.rebelsOn);button.setAttribute('aria-pressed',String(state.rebelsOn))}
   const setup=$('#setup-rebels');if(setup){setup.textContent=label;setup.classList.toggle('active',state.rebelsOn);setup.setAttribute('aria-pressed',String(state.rebelsOn))}
 }
+function updateAllianceButtons(){
+  const label=`Alliances: ${state.alliancesOn?'On':'Off'}`
+  const button=$('#toggle-alliances');if(button){button.textContent=label;button.classList.toggle('active',state.alliancesOn);button.setAttribute('aria-pressed',String(state.alliancesOn))}
+  const setup=$('#setup-alliances');if(setup){setup.textContent=label;setup.classList.toggle('active',state.alliancesOn);setup.setAttribute('aria-pressed',String(state.alliancesOn))}
+}
 
 function attackLimit(){return state.attackMode==='moderate'?3:Infinity}
 function canAttack(territory){return territory.attacks<1&&(state.attackMode!=='moderate'||(state.attacksThisTurn[territory.owner]||0)<attackLimit())}
@@ -410,6 +415,7 @@ function render() {
   updateStrengthButtons()
   updateCaptureAttackButtons()
   updateRebelButtons()
+  updateAllianceButtons()
   updateMusicButtons()
   const playerOrder=[...state.players].sort((a,b)=>Number(a.eliminated)-Number(b.eliminated)||state.territories.filter(t=>t.owner===b.id).length-state.territories.filter(t=>t.owner===a.id).length||a.id-b.id)
   $('#players').innerHTML = playerOrder.length ? playerOrder.map(p=>`
@@ -483,6 +489,7 @@ function diplomacyTargets(playerId){
   return state.players.filter(target=>target.id!==playerId&&!target.eliminated)
 }
 function formPact(type,first,second){
+  if(type==='alliance'&&!state.alliancesOn)return false
   if(attackedThisRound(first,second))return false
   if(type==='alliance'&&(allianceCount(first)>=2||allianceCount(second)>=2))return false
   const list=type==='alliance'?state.alliances:state.ceasefires
@@ -536,7 +543,7 @@ function aiDiplomacy(player){
   const targets=diplomacyTargets(player.id).filter(target=>!isDiplomacyProtected(player.id,target.id)&&!attackedThisRound(player.id,target.id)&&(!state.diplomacySent[`${state.roundCount}:${player.id}:${target.id}:alliance`]||!state.diplomacySent[`${state.roundCount}:${player.id}:${target.id}:ceasefire`]))
   if(!targets.length)return
   const target=targets.sort((a,b)=>state.territories.filter(t=>t.owner===b.id).length-state.territories.filter(t=>t.owner===a.id).length)[0]
-  const type=Math.random()<.7?'alliance':'ceasefire'
+  const type=state.alliancesOn&&Math.random()<.7?'alliance':'ceasefire'
   const sentKey=`${state.roundCount}:${player.id}:${target.id}:${type}`
   if(state.diplomacySent[sentKey])return
   state.diplomacySent[sentKey]=true
@@ -555,7 +562,7 @@ function renderActions() {
     const targets=p?.isHuman?diplomacyTargets(p.id):[]
     const selectedTarget=targets.find(target=>target.id===state.diplomacyTarget)?.id??targets[0]?.id
     if(selectedTarget!==undefined)state.diplomacyTarget=selectedTarget
-    const diplomacy=p?.isHuman?`<div class="action-card diplomacy-card"><label>Diplomacy · Click a country or choose below</label>${targets.length?`<select id="diplomacy-target">${targets.map(target=>`<option value="${target.id}" ${target.id===selectedTarget?'selected':''}>${escapeHtml(target.name)}${agreementStatus(target.id)}</option>`).join('')}</select><div class="diplomacy-buttons"><button id="make-alliance" class="secondary">Alliance · 3 turns</button><button id="make-ceasefire" class="secondary">Ceasefire · 1 turn</button></div>`:'<p>No active realms are available.</p>'}</div>`:''
+    const diplomacy=p?.isHuman?`<div class="action-card diplomacy-card"><label>Diplomacy · Click a country or choose below</label>${targets.length?`<select id="diplomacy-target">${targets.map(target=>`<option value="${target.id}" ${target.id===selectedTarget?'selected':''}>${escapeHtml(target.name)}${agreementStatus(target.id)}</option>`).join('')}</select><div class="diplomacy-buttons"><button id="make-alliance" class="secondary" ${state.alliancesOn?'':'disabled'}>Alliance · 3 turns</button><button id="make-ceasefire" class="secondary">Ceasefire · 1 turn</button></div>`:'<p>No active realms are available.</p>'}</div>`:''
     box.innerHTML=`${diplomacy}<div class="action-card"><label>Battle orders</label>${content}${p?.isHuman?'<button class="primary" id="end-turn">End turn</button>':''}</div>`
     if(p?.isHuman) $('#end-turn').onclick=endTurn
     if(p?.isHuman&&targets.length){$('#diplomacy-target').onchange=e=>{state.diplomacyTarget=Number(e.target.value)};$('#make-alliance').onclick=()=>requestPact('alliance',$('#diplomacy-target').value);$('#make-ceasefire').onclick=()=>requestPact('ceasefire',$('#diplomacy-target').value)}
@@ -564,10 +571,10 @@ function renderActions() {
 
 function renderModal() {
   const modal=$('#modal')
-  if(state.phase==='setup') modal.innerHTML=`<div class="modal-backdrop"><div class="setup-card"><span class="eyebrow">NEW CAMPAIGN</span><h1>Claim the old world.</h1><p>Each player starts with one connected realm. Hold your borders and conquer the continent.</p><div class="setup-grid"><label>Human players<select id="humans"><option value="1">1 player</option><option value="2">2 players</option><option value="3">3 players</option></select></label><label>Total players<select id="total">${Array.from({length:18},(_,i)=>i+3).map(count=>`<option value="${count}">${count} players</option>`).join('')}</select></label></div><div class="name-editor"><span>REALM NAMES · OPTIONAL</span>${Array.from({length:state.playerCount},(_,i)=>`<label><i style="background:${COLORS[i]}"></i><small>${i<state.humanCount?'Human':'AI'}</small><input id="player-name-${i}" value="${escapeHtml(state.playerNames[i])}" placeholder="Automatic by location" maxlength="24" /></label>`).join('')}</div><button class="music-start ${state.musicOn?'active':''}" id="setup-music" aria-pressed="${state.musicOn}">♫ Music: ${state.musicOn?'On':'Off'}</button><label class="music-choice">Music style<select id="setup-music-style"><option value="campaign">Campaign</option><option value="tension">Battle tension</option><option value="march">War march</option><option value="shadow">Dark frontier</option><option value="calm">Quiet command</option></select></label><button class="music-start ${state.strengthsOn?'active':''}" id="setup-strengths" aria-pressed="${state.strengthsOn}">Strengths: ${state.strengthsOn?'On':'Off'}</button><button class="music-start ${state.captureAttackOn?'active':''}" id="setup-capture-attack" aria-pressed="${state.captureAttackOn}">New capture attack: ${state.captureAttackOn?'On':'Off'}</button><button class="music-start ${state.rebelsOn?'active':''}" id="setup-rebels" aria-pressed="${state.rebelsOn}">Rebels: ${state.rebelsOn?'On':'Off'}</button><button class="music-start ${state.attackMode!=='normal'?'active':''}" id="setup-hard-mode" aria-pressed="${state.attackMode!=='normal'}">Mode: ${state.attackMode==='moderate'?'Moderate · 3 total':state.attackMode==='hard'?'Hard · all territories':'Normal · 1 per territory'}</button><button class="primary large" id="begin">Begin campaign <span>→</span></button><small>3–20 players · Empty names are generated by location</small></div></div>`
+  if(state.phase==='setup') modal.innerHTML=`<div class="modal-backdrop"><div class="setup-card"><span class="eyebrow">NEW CAMPAIGN</span><h1>Claim the old world.</h1><p>Each player starts with one connected realm. Hold your borders and conquer the continent.</p><div class="setup-grid"><label>Human players<select id="humans"><option value="1">1 player</option><option value="2">2 players</option><option value="3">3 players</option></select></label><label>Total players<select id="total">${Array.from({length:18},(_,i)=>i+3).map(count=>`<option value="${count}">${count} players</option>`).join('')}</select></label></div><div class="name-editor"><span>REALM NAMES · OPTIONAL</span>${Array.from({length:state.playerCount},(_,i)=>`<label><i style="background:${COLORS[i]}"></i><small>${i<state.humanCount?'Human':'AI'}</small><input id="player-name-${i}" value="${escapeHtml(state.playerNames[i])}" placeholder="Automatic by location" maxlength="24" /></label>`).join('')}</div><button class="music-start ${state.musicOn?'active':''}" id="setup-music" aria-pressed="${state.musicOn}">♫ Music: ${state.musicOn?'On':'Off'}</button><label class="music-choice">Music style<select id="setup-music-style"><option value="campaign">Campaign</option><option value="tension">Battle tension</option><option value="march">War march</option><option value="shadow">Dark frontier</option><option value="calm">Quiet command</option></select></label><button class="music-start ${state.strengthsOn?'active':''}" id="setup-strengths" aria-pressed="${state.strengthsOn}">Strengths: ${state.strengthsOn?'On':'Off'}</button><button class="music-start ${state.captureAttackOn?'active':''}" id="setup-capture-attack" aria-pressed="${state.captureAttackOn}">New capture attack: ${state.captureAttackOn?'On':'Off'}</button><button class="music-start ${state.rebelsOn?'active':''}" id="setup-rebels" aria-pressed="${state.rebelsOn}">Rebels: ${state.rebelsOn?'On':'Off'}</button><button class="music-start ${state.alliancesOn?'active':''}" id="setup-alliances" aria-pressed="${state.alliancesOn}">Alliances: ${state.alliancesOn?'On':'Off'}</button><button class="music-start ${state.attackMode!=='normal'?'active':''}" id="setup-hard-mode" aria-pressed="${state.attackMode!=='normal'}">Mode: ${state.attackMode==='moderate'?'Moderate · 3 total':state.attackMode==='hard'?'Hard · all territories':'Normal · 1 per territory'}</button><button class="primary large" id="begin">Begin campaign <span>→</span></button><small>3–20 players · Empty names are generated by location</small></div></div>`
   else if(state.phase==='gameover') modal.innerHTML=`<div class="modal-backdrop"><div class="setup-card victory"><span class="eyebrow">TOTAL VICTORY</span><h1>${state.message}</h1><button class="primary large" id="again">Play again</button></div></div>`
   else { modal.innerHTML=''; return }
-  if(state.phase==='setup') { $('#humans').value=state.humanCount; $('#total').value=state.playerCount; $('#setup-music-style').value=state.musicStyle; $('#humans').onchange=e=>{state.humanCount=+e.target.value;renderModal()}; $('#total').onchange=e=>{state.playerCount=+e.target.value;renderModal()}; $('#setup-music-style').onchange=e=>{state.musicStyle=e.target.value}; Array.from({length:state.playerCount},(_,i)=>{$(`#player-name-${i}`).oninput=e=>state.playerNames[i]=e.target.value}); $('#setup-music').onclick=toggleMusic; $('#setup-strengths').onclick=toggleStrengths; $('#setup-capture-attack').onclick=toggleCaptureAttack; $('#setup-rebels').onclick=toggleRebels; $('#setup-hard-mode').onclick=toggleHardMode; $('#begin').onclick=startGame }
+  if(state.phase==='setup') { $('#humans').value=state.humanCount; $('#total').value=state.playerCount; $('#setup-music-style').value=state.musicStyle; $('#humans').onchange=e=>{state.humanCount=+e.target.value;renderModal()}; $('#total').onchange=e=>{state.playerCount=+e.target.value;renderModal()}; $('#setup-music-style').onchange=e=>{state.musicStyle=e.target.value}; Array.from({length:state.playerCount},(_,i)=>{$(`#player-name-${i}`).oninput=e=>state.playerNames[i]=e.target.value}); $('#setup-music').onclick=toggleMusic; $('#setup-strengths').onclick=toggleStrengths; $('#setup-capture-attack').onclick=toggleCaptureAttack; $('#setup-rebels').onclick=toggleRebels; $('#setup-alliances').onclick=toggleAlliances; $('#setup-hard-mode').onclick=toggleHardMode; $('#begin').onclick=startGame }
   else $('#again').onclick=()=>{state.phase='setup';render()}
 }
 
@@ -727,10 +734,12 @@ function toggleHardMode(){const modes=['normal','moderate','hard'];state.attackM
 function toggleStrengths(){state.strengthsOn=!state.strengthsOn;updateStrengthButtons();if(state.phase==='war')render()}
 function toggleCaptureAttack(){state.captureAttackOn=!state.captureAttackOn;updateCaptureAttackButtons();if(state.phase==='war')render()}
 function toggleRebels(){state.rebelsOn=!state.rebelsOn;updateRebelButtons();if(state.phase==='war')render()}
+function toggleAlliances(){state.alliancesOn=!state.alliancesOn;updateAllianceButtons();if(state.phase==='war')render()}
 $('#toggle-hard-mode').onclick=toggleHardMode
 $('#toggle-strengths').onclick=toggleStrengths
 $('#toggle-capture-attack').onclick=toggleCaptureAttack
 $('#toggle-rebels').onclick=toggleRebels
+$('#toggle-alliances').onclick=toggleAlliances
 $('#toggle-pacts').onclick=()=>{state.showPacts=!state.showPacts;const button=$('#toggle-pacts');button.classList.toggle('active',state.showPacts);button.setAttribute('aria-pressed',String(state.showPacts));renderPacts()}
 $('#toggle-controls').onclick=()=>{state.controlsHidden=true;render()}
 $('#show-controls').onclick=()=>{state.controlsHidden=false;render()}
