@@ -77,7 +77,7 @@ document.querySelector('#root').innerHTML = `
     <header>
       <div class="brand"><span class="brand-mark">BD</span><div><b>Borderline</b><em>Dominion</em></div></div>
       <div class="turn-banner"><span id="phase-label">THE OLD WORLD</span><strong id="message">Awaiting commanders</strong></div>
-      <div class="header-actions"><button class="ghost" id="save-game">Save</button><button class="ghost" id="load-game">Load</button><button class="ghost" id="delete-game">Delete</button><button class="ghost" id="new-game">New game</button></div>
+      <div class="header-actions"><button class="ghost" id="save-game">Save</button><button class="ghost" id="load-game">Load</button><button class="ghost" id="export-game">Export</button><button class="ghost" id="delete-game">Delete</button><button class="ghost" id="new-game">New game</button></div>
     </header>
     <section class="game-shell">
       <div class="map-wrap">
@@ -809,22 +809,25 @@ function saveDialog(action){
   const names=savedGameNames(),box=$('#save-dialog')
   if((action!=='save')&&!names.length){state.message='No saved campaigns found in this browser.';render();return}
   const options=names.map(name=>`<option value="${escapeHtml(name)}">${escapeHtml(name)}</option>`).join('')
-  box.innerHTML=`<div class="save-backdrop"><div class="save-card"><span class="eyebrow">${action==='save'?'SAVE CAMPAIGN':action==='load'?'LOAD CAMPAIGN':'DELETE CAMPAIGN'}</span>${action==='save'?`<label>Save name<select id="save-choice"><option value="__new">＋ New save name…</option>${options}</select></label><input id="save-name-input" placeholder="Campaign name" maxlength="40" />`:`<label>Choose campaign<select id="save-choice">${options}</select></label>`}<div class="save-actions"><button class="secondary" id="save-cancel">Cancel</button><button class="primary" id="save-confirm">${action==='save'?'Save':action==='load'?'Load':'Delete'}</button></div></div></div>`
+  box.innerHTML=`<div class="save-backdrop"><div class="save-card"><span class="eyebrow">${action==='save'?'SAVE CAMPAIGN':action==='load'?'LOAD CAMPAIGN':action==='export'?'EXPORT CAMPAIGN':'DELETE CAMPAIGN'}</span>${action==='save'?`<label>Save name<select id="save-choice"><option value="__new">＋ New save name…</option>${options}</select></label><input id="save-name-input" placeholder="Campaign name" maxlength="40" />`:`<label>Choose campaign<select id="save-choice">${options}</select></label>`}<div class="save-actions"><button class="secondary" id="save-cancel">Cancel</button><button class="primary" id="save-confirm">${action==='save'?'Save':action==='load'?'Load':action==='export'?'Export':'Delete'}</button></div></div></div>`
   const choice=$('#save-choice'),input=$('#save-name-input');if(input)choice.onchange=()=>{input.disabled=choice.value!=='__new';if(!input.disabled)input.focus()};$('#save-cancel').onclick=closeSaveDialog;$('#save-confirm').onclick=()=>{
     let name=action==='save'?(choice.value==='__new'?input.value.trim():choice.value):choice.value
     if(!name){state.message='Choose or enter a save name.';closeSaveDialog();render();return}
     const key=`borderline-dominion-save:${name}`
     if(action==='save'){if(state.phase==='setup'){state.message='Start a campaign before saving.'}else{try{localStorage.setItem(key,JSON.stringify({...state,aiTimer:null,saveName:name,savedAt:new Date().toISOString()}));state.message=`Campaign saved as “${name}”.`}catch(error){state.message='Could not save this campaign.'}}}
     else if(action==='load'){try{clearTimeout(state.aiTimer);Object.assign(state,JSON.parse(localStorage.getItem(key)),{aiTimer:null});if(state.phase==='war'&&!state.players[state.turn]?.isHuman)runAI()}catch(error){state.message='That saved campaign could not be loaded.'}}
+    else if(action==='export'){try{const data=localStorage.getItem(key);const blob=new Blob([data],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');link.href=url;link.download=`${name.replace(/[^a-z0-9-_ ]/gi,'').trim()||'campaign'}.json`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);state.message=`Exported “${name}”.`}catch(error){state.message='That campaign could not be exported.'}}
     else if(window.confirm(`Delete saved campaign “${name}”?`)){localStorage.removeItem(key);state.message=`Deleted saved campaign “${name}”.`}
     closeSaveDialog();render()
   }
 }
 function saveGame(){saveDialog('save')}
 function loadGame(){saveDialog('load')}
+function exportGame(){saveDialog('export')}
 function deleteGame(){saveDialog('delete')}
 $('#save-game').onclick=saveGame
 $('#load-game').onclick=loadGame
+$('#export-game').onclick=exportGame
 $('#delete-game').onclick=deleteGame
 document.addEventListener('keydown',event=>{if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='s'){event.preventDefault();saveGame()}})
 document.querySelector('#root').insertAdjacentHTML('beforeend','<div class="loading" id="loader"><span class="spinner"></span>Drawing the frontiers…</div>')
